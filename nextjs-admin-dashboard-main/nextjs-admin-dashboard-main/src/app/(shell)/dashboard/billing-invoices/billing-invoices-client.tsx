@@ -64,6 +64,44 @@ function formatPkDateTime(value: string) {
   }).format(parsed);
 }
 
+async function loadImageAsDataUrl(path: string): Promise<string | null> {
+  try {
+    const response = await fetch(path, { cache: "force-cache" });
+    if (!response.ok) {
+      return null;
+    }
+    const imageBlob = await response.blob();
+    const blobUrl = URL.createObjectURL(imageBlob);
+    const image = new Image();
+    image.decoding = "async";
+    image.src = blobUrl;
+    await image.decode();
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 420;
+    canvas.height = 420;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      URL.revokeObjectURL(blobUrl);
+      return null;
+    }
+    const size = Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height);
+    const sx = ((image.naturalWidth || image.width) - size) / 2;
+    const sy = ((image.naturalHeight || image.height) - size) / 2;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(image, sx, sy, size, size, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(blobUrl);
+    return canvas.toDataURL("image/png", 0.92);
+  } catch {
+    return null;
+  }
+}
+
 export function BillingInvoicesClient() {
   const [clients, setClients] = useState<Client[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -223,42 +261,58 @@ export function BillingInvoicesClient() {
     }
   };
 
-  const downloadInvoicePdf = (invoice: InvoiceRecord) => {
+  const downloadInvoicePdf = async (invoice: InvoiceRecord) => {
     const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const left = 48;
-    let y = 56;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const left = 42;
+    const right = pageWidth - 42;
 
+    doc.setDrawColor(228, 231, 236);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(30, 24, pageWidth - 60, 112, 12, 12, "FD");
+
+    const logoDataUrl =
+      (await loadImageAsDataUrl("/images/logo/elegant-premium-beverages-logo.png")) ??
+      (await loadImageAsDataUrl("/images/logo/logo.svg"));
+    if (logoDataUrl) {
+      doc.addImage(logoDataUrl, "PNG", left + 4, 34, 72, 72);
+    } else {
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text(BRAND.name, left, 62);
+    }
+
+    doc.setTextColor(30, 41, 59);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(20);
-    doc.text(BRAND.name, left, y);
-    y += 24;
+    doc.text("SALES INVOICE", right, 54, { align: "right" });
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.text("Computerized Sales Invoice", left, y);
-    y += 16;
-    doc.text(`Invoice #: ${invoice.invoiceNumber}`, left, y);
-    y += 14;
-    doc.text(`Invoice Date: ${formatPkDateTime(invoice.invoiceDate)}`, left, y);
-    y += 14;
-    doc.text(`Payment Type: ${invoice.paymentType.toUpperCase()}`, left, y);
-    y += 26;
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Invoice #: ${invoice.invoiceNumber}`, right, 74, { align: "right" });
+    doc.text(`Issued: ${formatPkDateTime(invoice.invoiceDate)}`, right, 89, { align: "right" });
+    doc.text(`Payment Type: ${invoice.paymentType.toUpperCase()}`, right, 104, {
+      align: "right",
+    });
 
+    doc.setDrawColor(228, 231, 236);
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(left, 152, pageWidth - 84, 70, 8, 8, "FD");
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text("Client Details", left, y);
-    y += 16;
-
-    doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    doc.text(`Name: ${invoice.client.name}`, left, y);
-    y += 14;
+    doc.setTextColor(15, 23, 42);
+    doc.text("Bill To", left + 12, 172);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`Client: ${invoice.client.name}`, left + 12, 190);
     doc.text(
-      `Email/Contact: ${invoice.client.email ?? invoice.client.contactNumber ?? "N/A"}`,
-      left,
-      y,
+      `Contact: ${invoice.client.email ?? invoice.client.contactNumber ?? "N/A"}`,
+      left + 12,
+      206,
     );
-    y += 12;
 
     const tableBody = invoice.items.map((item, index) => [
       String(index + 1),
@@ -269,27 +323,47 @@ export function BillingInvoicesClient() {
     ]);
 
     autoTable(doc, {
-      startY: y + 14,
+      startY: 242,
       head: [["#", "Item", "Qty", "Unit Price", "Line Total"]],
       body: tableBody,
-      styles: { fontSize: 10, cellPadding: 6 },
-      headStyles: { fillColor: [26, 122, 155] },
-      theme: "grid",
+      styles: { fontSize: 10, cellPadding: 7, textColor: [31, 41, 55] },
+      headStyles: { fillColor: [26, 122, 155], textColor: [255, 255, 255], fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      bodyStyles: { lineColor: [226, 232, 240], lineWidth: 0.4 },
+      theme: "striped",
       margin: { left, right: left },
     });
 
-    const tableEndY = (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y + 120;
-    const footerY = tableEndY + 26;
+    const tableEndY =
+      (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 380;
+    const summaryBoxY = tableEndY + 16;
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(right - 230, summaryBoxY, 230, 52, 8, 8, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text("Grand Total", right - 214, summaryBoxY + 21);
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text(`Total Amount: ${invoice.totalAmount.toFixed(2)}`, left, footerY);
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42);
+    doc.text(invoice.totalAmount.toFixed(2), right - 16, summaryBoxY + 34, { align: "right" });
 
     if (invoice.notes) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
-      doc.text(`Notes: ${invoice.notes}`, left, footerY + 18);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`Notes: ${invoice.notes}`, left, summaryBoxY + 76);
     }
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(left, 760, right, 760);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Thank you for your business.", left, 778);
+    doc.text("This is a computer-generated invoice.", right, 778, { align: "right" });
 
     doc.save(`${invoice.invoiceNumber}.pdf`);
   };
@@ -547,7 +621,7 @@ export function BillingInvoicesClient() {
                   <td className="px-3 py-3">
                     <button
                       type="button"
-                      onClick={() => downloadInvoicePdf(invoice)}
+                      onClick={() => void downloadInvoicePdf(invoice)}
                       className="rounded-lg border border-stroke px-3 py-1.5 text-xs font-medium hover:bg-gray-2 dark:border-dark-3 dark:hover:bg-dark-2"
                     >
                       Download PDF

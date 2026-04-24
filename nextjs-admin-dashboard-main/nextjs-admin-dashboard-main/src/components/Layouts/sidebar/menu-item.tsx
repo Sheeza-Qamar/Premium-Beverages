@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSidebarContext } from "./sidebar-context";
 
 const menuItemBaseStyles = cva(
-  "rounded-lg px-3.5 font-medium text-dark-4 transition-all duration-200 dark:text-dark-6",
+  "rounded-lg px-3 py-2 text-sm font-medium text-dark-4 transition-all duration-200 dark:text-dark-6",
   {
     variants: {
       isActive: {
@@ -38,7 +38,7 @@ export function MenuItem(
         className={cn(
           menuItemBaseStyles({
             isActive: props.isActive,
-            className: "relative block py-2",
+              className: "relative block",
           }),
           props.className,
         )}
@@ -54,7 +54,7 @@ export function MenuItem(
       aria-expanded={props.isActive}
       className={menuItemBaseStyles({
         isActive: props.isActive,
-        className: "flex w-full items-center gap-3 py-3",
+        className: "flex w-full items-center gap-2.5",
       })}
     >
       {props.children}

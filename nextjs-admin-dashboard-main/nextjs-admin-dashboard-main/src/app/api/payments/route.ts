@@ -1,5 +1,6 @@
 import { requireAuth } from "@/lib/auth";
-import { dbExecute, dbQuery, type DbRow, withTransaction } from "@/lib/db";
+import { dbQuery, type DbRow, withTransaction } from "@/lib/db";
+import { buildPaymentReceiptNumber, toIsoDateOnly } from "@/lib/payment-receipt";
 import { parseNonNegativeNumber, toOptionalTrimmedString } from "@/lib/validation";
 import type { PoolConnection } from "mysql2/promise";
 import { NextResponse } from "next/server";
@@ -113,10 +114,11 @@ export async function GET() {
       orderId: row.order_id,
       invoiceNumber: row.invoice_number,
       amountPaid: Number(row.amount_paid),
-      paymentDate: row.payment_date,
+      paymentDate: toIsoDateOnly(row.payment_date),
       paymentMethod: row.payment_method,
       referenceNote: row.reference_note,
-      createdAt: row.created_at,
+      createdAt: String(row.created_at),
+      receiptNumber: buildPaymentReceiptNumber(row.id, row.payment_date),
     })),
   });
 }
@@ -201,6 +203,7 @@ export async function POST(request: Request) {
       return {
         paymentId: (result as { insertId: number }).insertId,
         invoiceNumber: order.invoice_number,
+        paymentDate,
         outstandingAfter,
       };
     });
@@ -210,6 +213,7 @@ export async function POST(request: Request) {
         message: "Payment recorded successfully.",
         id: created.paymentId,
         invoiceNumber: created.invoiceNumber,
+        receiptNumber: buildPaymentReceiptNumber(created.paymentId, created.paymentDate),
         outstandingAfter: created.outstandingAfter,
       },
       { status: 201 },

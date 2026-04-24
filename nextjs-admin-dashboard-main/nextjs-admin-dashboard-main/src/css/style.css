@@ -5,7 +5,14 @@
 @layer base {
   body {
     /* Dark shell: deep teal-gray (aligned with logo, easier on eyes than pure blue-black) */
-    @apply bg-gray-2 text-dark-5 dark:bg-[#0d1b22] dark:text-dark-6;
+    @apply bg-gray-2 text-sm text-dark-5 antialiased dark:bg-[#0d1b22] dark:text-dark-6;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply tracking-tight;
   }
 }
 

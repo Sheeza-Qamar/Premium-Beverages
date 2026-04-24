@@ -2,7 +2,7 @@ import { cva, VariantProps } from "class-variance-authority";
 import type { HTMLAttributes } from "react";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2.5 text-center font-medium hover:bg-opacity-90 font-medium transition focus:outline-none",
+  "inline-flex items-center justify-center gap-2 text-center font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
   {
     variants: {
       variant: {
@@ -17,12 +17,12 @@ const buttonVariants = cva(
       },
       shape: {
         default: "",
-        rounded: "rounded-[5px]",
+        rounded: "rounded-md",
         full: "rounded-full",
       },
       size: {
-        default: "py-3.5 px-10 py-3.5 lg:px-8 xl:px-10",
-        small: "py-[11px] px-6",
+        default: "h-10 px-6 text-sm lg:px-5 xl:px-6",
+        small: "h-9 px-4 text-sm",
       },
     },
     defaultVariants: {

@@ -27,7 +27,7 @@ export function Select({
   const [isOptionSelected, setIsOptionSelected] = useState(false);
 
   return (
-    <div className={cn("space-y-3", className)}>
+    <div className={cn("space-y-2", className)}>
       <label
         htmlFor={id}
         className="block text-body-sm font-medium text-dark dark:text-white"
@@ -47,9 +47,9 @@ export function Select({
           defaultValue={defaultValue || ""}
           onChange={() => setIsOptionSelected(true)}
           className={cn(
-            "w-full appearance-none rounded-lg border border-stroke bg-transparent px-5.5 py-3 outline-none transition focus:border-primary active:border-primary dark:border-dark-3 dark:bg-dark-2 dark:focus:border-primary [&>option]:text-dark-5 dark:[&>option]:text-dark-6",
+            "h-10 w-full appearance-none rounded-lg border border-stroke bg-transparent px-4 text-sm outline-none transition focus:border-primary active:border-primary dark:border-dark-3 dark:bg-dark-2 dark:focus:border-primary [&>option]:text-dark-5 dark:[&>option]:text-dark-6",
             isOptionSelected && "text-dark dark:text-white",
-            prefixIcon && "pl-11.5",
+            prefixIcon && "pl-10.5",
           )}
         >
           {placeholder && (

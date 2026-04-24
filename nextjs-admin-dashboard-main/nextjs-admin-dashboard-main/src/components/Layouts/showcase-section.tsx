@@ -9,12 +9,12 @@ type PropsType = {
 
 export function ShowcaseSection({ title, children, className }: PropsType) {
   return (
-    <div className="rounded-[10px] bg-white shadow-1 dark:bg-gray-dark dark:shadow-card">
-      <h2 className="border-b border-stroke px-4 py-4 font-medium text-dark dark:border-dark-3 dark:text-white sm:px-6 xl:px-7.5">
+    <div className="rounded-xl border border-stroke/80 bg-white shadow-sm dark:border-dark-3 dark:bg-gray-dark">
+      <h2 className="border-b border-stroke/80 px-4 py-3 text-sm font-semibold tracking-tight text-dark dark:border-dark-3 dark:text-white sm:px-5 xl:px-6">
         {title}
       </h2>
 
-      <div className={cn("p-4 sm:p-6 xl:p-10", className)}>{children}</div>
+      <div className={cn("p-4 sm:p-5 xl:p-6", className)}>{children}</div>
     </div>
   );
 }

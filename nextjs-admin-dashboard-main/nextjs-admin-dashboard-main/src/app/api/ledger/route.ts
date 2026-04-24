@@ -39,120 +39,136 @@ type LedgerEntry = {
   notes: string | null;
 };
 
+function normalizeDateValue(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === "string") {
+    return value.slice(0, 10);
+  }
+  return String(value ?? "");
+}
+
 export async function GET() {
   const auth = await requireAuth();
   if (!auth.ok) {
     return auth.response;
   }
+  try {
+    const [orders] = await dbQuery<OrderLedgerRow[]>(
+      `SELECT
+         o.id,
+         o.client_id,
+         c.name AS client_name,
+         o.invoice_number,
+         o.order_date,
+         o.total_amount,
+         o.notes
+       FROM orders o
+       INNER JOIN clients c ON c.id = o.client_id
+       WHERE o.status <> 'cancelled'
+       ORDER BY o.order_date ASC, o.id ASC`,
+    );
 
-  const [orders] = await dbQuery<OrderLedgerRow[]>(
-    `SELECT
-       o.id,
-       o.client_id,
-       c.name AS client_name,
-       o.invoice_number,
-       o.order_date,
-       o.total_amount,
-       o.notes
-     FROM orders o
-     INNER JOIN clients c ON c.id = o.client_id
-     WHERE o.status <> 'cancelled'
-     ORDER BY o.order_date ASC, o.id ASC`,
-  );
+    const [payments] = await dbQuery<PaymentLedgerRow[]>(
+      `SELECT
+         p.id,
+         p.client_id,
+         c.name AS client_name,
+         p.order_id,
+         o.invoice_number,
+         p.payment_date,
+         p.amount_paid,
+         p.payment_method,
+         p.reference_note
+       FROM payments p
+       INNER JOIN clients c ON c.id = p.client_id
+       LEFT JOIN orders o ON o.id = p.order_id
+       ORDER BY p.payment_date ASC, p.id ASC`,
+    );
 
-  const [payments] = await dbQuery<PaymentLedgerRow[]>(
-    `SELECT
-       p.id,
-       p.client_id,
-       c.name AS client_name,
-       p.order_id,
-       o.invoice_number,
-       p.payment_date,
-       p.amount_paid,
-       p.payment_method,
-       p.reference_note
-     FROM payments p
-     INNER JOIN clients c ON c.id = p.client_id
-     LEFT JOIN orders o ON o.id = p.order_id
-     ORDER BY p.payment_date ASC, p.id ASC`,
-  );
+    const events: Array<Omit<LedgerEntry, "balance">> = [
+      ...orders.map((order) => ({
+        id: `order-${order.id}`,
+        clientId: order.client_id,
+        clientName: order.client_name,
+        entryDate: normalizeDateValue(order.order_date),
+        referenceType: "order" as const,
+        referenceId: order.id,
+        invoiceNumber: order.invoice_number,
+        paymentMethod: null,
+        debit: Number(order.total_amount),
+        credit: 0,
+        notes: order.notes,
+      })),
+      ...payments.map((payment) => ({
+        id: `payment-${payment.id}`,
+        clientId: payment.client_id,
+        clientName: payment.client_name,
+        entryDate: normalizeDateValue(payment.payment_date),
+        referenceType: "payment" as const,
+        referenceId: payment.id,
+        invoiceNumber: payment.invoice_number,
+        paymentMethod: payment.payment_method,
+        debit: 0,
+        credit: Number(payment.amount_paid),
+        notes: payment.reference_note,
+      })),
+    ];
 
-  const events: Array<Omit<LedgerEntry, "balance">> = [
-    ...orders.map((order) => ({
-      id: `order-${order.id}`,
-      clientId: order.client_id,
-      clientName: order.client_name,
-      entryDate: order.order_date,
-      referenceType: "order" as const,
-      referenceId: order.id,
-      invoiceNumber: order.invoice_number,
-      paymentMethod: null,
-      debit: Number(order.total_amount),
-      credit: 0,
-      notes: order.notes,
-    })),
-    ...payments.map((payment) => ({
-      id: `payment-${payment.id}`,
-      clientId: payment.client_id,
-      clientName: payment.client_name,
-      entryDate: payment.payment_date,
-      referenceType: "payment" as const,
-      referenceId: payment.id,
-      invoiceNumber: payment.invoice_number,
-      paymentMethod: payment.payment_method,
-      debit: 0,
-      credit: Number(payment.amount_paid),
-      notes: payment.reference_note,
-    })),
-  ];
+    events.sort((a, b) => {
+      const byClient = a.clientId - b.clientId;
+      if (byClient !== 0) {
+        return byClient;
+      }
+      const aDate = normalizeDateValue(a.entryDate);
+      const bDate = normalizeDateValue(b.entryDate);
+      const byDate = aDate.localeCompare(bDate);
+      if (byDate !== 0) {
+        return byDate;
+      }
+      if (a.referenceType !== b.referenceType) {
+        return a.referenceType === "order" ? -1 : 1;
+      }
+      return a.referenceId - b.referenceId;
+    });
 
-  events.sort((a, b) => {
-    const byClient = a.clientId - b.clientId;
-    if (byClient !== 0) {
-      return byClient;
-    }
-    const byDate = a.entryDate.localeCompare(b.entryDate);
-    if (byDate !== 0) {
-      return byDate;
-    }
-    if (a.referenceType !== b.referenceType) {
-      return a.referenceType === "order" ? -1 : 1;
-    }
-    return a.referenceId - b.referenceId;
-  });
+    const runningByClient = new Map<number, number>();
+    const entries: LedgerEntry[] = events.map((event) => {
+      const previous = runningByClient.get(event.clientId) ?? 0;
+      const balance = previous + event.debit - event.credit;
+      runningByClient.set(event.clientId, balance);
+      return { ...event, balance };
+    });
 
-  const runningByClient = new Map<number, number>();
-  const entries: LedgerEntry[] = events.map((event) => {
-    const previous = runningByClient.get(event.clientId) ?? 0;
-    const balance = previous + event.debit - event.credit;
-    runningByClient.set(event.clientId, balance);
-    return { ...event, balance };
-  });
+    const summary = entries.reduce(
+      (acc, entry) => {
+        acc.totalDebit += entry.debit;
+        acc.totalCredit += entry.credit;
+        return acc;
+      },
+      { totalDebit: 0, totalCredit: 0 },
+    );
+    const closingBalance = summary.totalDebit - summary.totalCredit;
 
-  const summary = entries.reduce(
-    (acc, entry) => {
-      acc.totalDebit += entry.debit;
-      acc.totalCredit += entry.credit;
-      return acc;
-    },
-    { totalDebit: 0, totalCredit: 0 },
-  );
-  const closingBalance = summary.totalDebit - summary.totalCredit;
-
-  return NextResponse.json({
-    summary: {
-      totalDebit: summary.totalDebit,
-      totalCredit: summary.totalCredit,
-      closingBalance,
-    },
-    clients: Array.from(
-      entries.reduce((map, entry) => {
-        if (!map.has(entry.clientId)) {
-          map.set(entry.clientId, entry.clientName);
-        }
-        return map;
-      }, new Map<number, string>()),
-    ).map(([id, name]) => ({ id, name })),
-    entries,
-  });
+    return NextResponse.json({
+      summary: {
+        totalDebit: summary.totalDebit,
+        totalCredit: summary.totalCredit,
+        closingBalance,
+      },
+      clients: Array.from(
+        entries.reduce((map, entry) => {
+          if (!map.has(entry.clientId)) {
+            map.set(entry.clientId, entry.clientName);
+          }
+          return map;
+        }, new Map<number, string>()),
+      ).map(([id, name]) => ({ id, name })),
+      entries,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to load ledger.";
+    return NextResponse.json({ message }, { status: 500 });
+  }
 }

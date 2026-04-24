@@ -7,10 +7,10 @@ export default function ShellLayout({ children }: PropsWithChildren) {
     <div className="flex min-h-screen">
       <Sidebar />
 
-      <div className="w-full bg-gray-2 dark:bg-[#020d1a]">
+      <div className="w-full bg-gray-2/70 dark:bg-[#07131b]">
         <Header />
 
-        <main className="isolate mx-auto w-full max-w-screen-2xl overflow-hidden p-4 md:p-6 2xl:p-10">
+        <main className="isolate mx-auto w-full max-w-screen-2xl overflow-hidden p-3.5 md:p-5 2xl:p-8">
           {children}
         </main>
       </div>

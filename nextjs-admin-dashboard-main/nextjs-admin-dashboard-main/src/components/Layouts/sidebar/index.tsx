@@ -59,7 +59,7 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "max-w-[290px] overflow-hidden border-r border-gray-200 bg-white transition-[width] duration-200 ease-linear dark:border-gray-800 dark:bg-gray-dark",
+          "max-w-[272px] overflow-hidden border-r border-gray-200/80 bg-white transition-[width] duration-200 ease-linear dark:border-gray-800 dark:bg-gray-dark",
           isMobile ? "fixed bottom-0 top-0 z-50" : "sticky top-0 h-screen",
           isOpen ? "w-full" : "w-0",
         )}
@@ -67,8 +67,8 @@ export function Sidebar() {
         aria-hidden={!isOpen}
         inert={!isOpen}
       >
-        <div className="flex h-full flex-col pt-3 pb-6 pl-[25px] pr-[7px] min-[850px]:pt-4 min-[850px]:pb-8">
-          <div className="relative pr-4.5">
+        <div className="flex h-full flex-col pb-5 pl-4 pr-2 pt-3 min-[850px]:pb-6 min-[850px]:pt-3.5">
+          <div className="relative pr-3">
             <Link
               href="/dashboard"
               onClick={() => isMobile && toggleSidebar()}
@@ -90,15 +90,15 @@ export function Sidebar() {
           </div>
 
           {/* Navigation */}
-          <div className="custom-scrollbar mt-3 flex-1 overflow-y-auto pr-3 min-[850px]:mt-4">
+          <div className="custom-scrollbar mt-2.5 flex-1 overflow-y-auto pr-2 min-[850px]:mt-3">
             {NAV_DATA.map((section) => (
-              <div key={section.label} className="mb-6">
-                <h2 className="mb-3 text-sm font-medium text-dark-4 dark:text-dark-6">
+              <div key={section.label} className="mb-5">
+                <h2 className="mb-2.5 px-1 text-xs font-semibold uppercase tracking-[0.08em] text-dark-4/90 dark:text-dark-6">
                   {section.label}
                 </h2>
 
                 <nav role="navigation" aria-label={section.label}>
-                  <ul className="space-y-2">
+                  <ul className="space-y-1.5">
                     {section.items.map((item) => (
                       <li key={item.title}>
                         {item.items.length ? (
@@ -134,7 +134,7 @@ export function Sidebar() {
 
                                 {expandedItems.includes(item.title) && (
                                   <ul
-                                    className="ml-9 mr-0 space-y-1.5 pb-[15px] pr-0 pt-2"
+                                    className="ml-8 mr-0 space-y-1 pb-3.5 pr-0 pt-1.5"
                                     role="menu"
                                   >
                                     {subItems.map((subItem) => (
@@ -166,7 +166,7 @@ export function Sidebar() {
 
                             return (
                               <MenuItem
-                                className="flex items-center gap-3 py-3"
+                                className="flex items-center gap-2.5 py-2.5"
                                 as="link"
                                 href={href}
                                 isActive={

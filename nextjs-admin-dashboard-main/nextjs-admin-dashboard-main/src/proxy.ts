@@ -6,6 +6,7 @@ const AUTH_COOKIE = "erp_session";
 const PUBLIC_PATH_PREFIXES = [
   "/auth/sign-in",
   "/auth/first-admin",
+  "/client-card",
 ];
 
 const PUBLIC_API_PREFIXES = [
@@ -13,6 +14,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth/logout",
   "/api/auth/first-admin-available",
   "/api/auth/register-first-admin",
+  "/api/client-card",
 ];
 
 function isPublicPage(pathname: string) {
