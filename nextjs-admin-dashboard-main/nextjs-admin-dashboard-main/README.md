@@ -1,92 +1,88 @@
-# NextAdmin - Next.js Admin Dashboard Template and Components
+# Premium Beverages ERP Dashboard
 
-**NextAdmin** is a Free, open-source Next.js admin dashboard toolkit featuring 200+ UI components and templates that come with pre-built elements, components, pages, high-quality design, integrations, and much more to help you create powerful admin dashboards with ease.
+Production ERP dashboard for `Premium Beverages`, built with Next.js and TypeScript.
 
+This system manages:
+- clients and client labels
+- inventory and production
+- orders and invoices
+- payments recovery and ledger
+- branded client membership cards (QR-based access)
+- professional invoice and receipt PDFs
 
-[![nextjs admin template](https://cdn.pimjo.com/nextadmin-2.png)](https://nextadmin.co/)
+## Tech Stack
 
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- MySQL (`mysql2/promise`)
+- JWT-based auth
 
-**NextAdmin** provides you with a diverse set of dashboard UI components, elements, examples and pages necessary for creating top-notch admin panels or dashboards with **powerful** features and integrations. Whether you are working on a complex web application or a basic website, **NextAdmin** has got you covered.
+## Run Locally
 
-### [✨ Visit Website](https://nextadmin.co/)
-### [🚀 Live Demo](https://demo.nextadmin.co/)
-### [📖 Docs](https://docs.nextadmin.co/)
-
-By leveraging the latest features of **Next.js 14** and key functionalities like **server-side rendering (SSR)**, **static site generation (SSG)**, and seamless **API route integration**, **NextAdmin** ensures optimal performance. With the added benefits of **React 18 advancements** and **TypeScript** reliability, **NextAdmin** is the ultimate choice to kickstart your **Next.js** project efficiently.
-
-## Installation
-
-1. Download/fork/clone the repo and Once you're in the correct directory, it's time to install all the necessary dependencies. You can do this by typing the following command:
-
-```
+```bash
 npm install
-```
-If you're using **Yarn** as your package manager, the command will be:
-
-```
-yarn install
-```
-
-2. Okay, you're almost there. Now all you need to do is start the development server. If you're using **npm**, the command is:
-
-```
 npm run dev
 ```
-And if you're using **Yarn**, it's:
 
+For production build:
+
+```bash
+npm run build
+npm start
 ```
-yarn dev
+
+## Environment Variables
+
+Create `.env.local` in project root:
+
+```env
+DB_HOST=your-db-host
+DB_PORT=3306
+DB_USER=your-db-user
+DB_PASSWORD=your-db-password
+DB_NAME=your-db-name
+DB_SSL=true
+JWT_SECRET=your-strong-random-secret
 ```
 
-And voila! You're now ready to start developing. **Happy coding**!
+Optional SSL flags (for hosted MySQL like Aiven):
 
-## Highlighted Features
-**200+ Next.js Dashboard Ul Components and Templates** - includes a variety of prebuilt **Ul elements, components, pages, and examples** crafted with a high-quality design.
-Additionally, features seamless **essential integrations and extensive functionalities**.
+```env
+DB_SSL_MODE=REQUIRED
+DB_SSL_REJECT_UNAUTHORIZED=false
+DB_SSL_CA_PATH=/path/to/ca.pem
+```
 
-- A library of over **200** professional dashboard UI components and elements.
-- Five distinctive dashboard variations, catering to diverse use-cases.
-- A comprehensive set of essential dashboard and admin pages.
-- More than **45** **Next.js** files, ready for use.
-- Styling facilitated by **Tailwind CSS** files.
-- A design that resonates premium quality and high aesthetics.
-- A handy UI kit with assets.
-- Over ten web apps complete with examples.
-- Support for both **dark mode** and **light mode**.
-- Essential integrations including - Authentication (**NextAuth**), Database (**Postgres** with **Prisma**), and Search (**Algolia**).
-- Detailed and user-friendly documentation.
-- Customizable plugins and add-ons.
-- **TypeScript** compatibility.
-- Plus, much more!
+## Core Modules
 
-All these features and more make **NextAdmin** a robust, well-rounded solution for all your dashboard development needs.
+- `Dashboard` - KPIs and charts
+- `Clients` - profile management, label inventory, membership QR and card PDF
+- `Inventory` - stock and raw material tracking
+- `Production` - production records and usage
+- `Orders` - sales orders management
+- `Billing & Invoices` - computerized invoice generation + branded PDF
+- `Payments & Recovery` - payment recording + branded receipt PDF
+- `Ledger` - debit/credit and running balances
+- `Expenses` - operational expense logs
 
-## Update Logs
+## Security / Access
 
-### Version 1.2.3 - [Mar 16, 2026]
-- Update Next.js to ^16.1.6 and configure image qualities
+- Admin dashboard routes require authenticated session (`erp_session` cookie)
+- Public client-facing card route:
+  - `/client-card/[token]`
+- Token is signed via JWT and validated on every client-card API request
 
-### Version 1.2.2 - [December 01, 2025]
-- Updated to Next.js 16
-- Updated dependencies.
+## Deployment (Vercel)
 
-### Version 1.2.1 - [Mar 20, 2025]
-- Fix Peer dependency issues and NextConfig warning.
-- Updated apexcharts and react-apexhcarts to the latest version.
+1. Push code to GitHub
+2. Import repo in Vercel
+3. Add environment variables from `.env.local`
+4. Deploy
 
-### Version 1.2.0 - Major Upgrade and UI Improvements - [Jan 27, 2025]
+## Notes
 
-- Upgraded to Next.js v15 and updated dependencies
-- API integration with loading skeleton for tables and charts.
-- Improved code structure for better readability.
-- Rebuilt components like dropdown, sidebar, and all ui-elements using accessibility practices.
-- Using search-params to store dropdown selection and refetch data.
-- Semantic markups, better separation of concerns and more.
-
-### Version 1.1.0
-- Updated Dependencies
-- Removed Unused Integrations
-- Optimized App
-
-### Version 1.0
-- Initial Release - [May 13, 2024]
+- Keep `.env.local` out of Git
+- Rotate `JWT_SECRET` and DB credentials periodically
+- Use HTTPS domain in production for secure client card sharing
