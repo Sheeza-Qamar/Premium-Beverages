@@ -162,8 +162,6 @@ export function DashboardClient() {
         order.invoiceNumber ?? "",
         `order #${order.id}`,
         String(order.id),
-        order.paymentType,
-        order.status,
         order.totalAmount.toFixed(2),
         order.recoveredAmount.toFixed(2),
         order.pendingAmount.toFixed(2),
@@ -316,18 +314,16 @@ export function DashboardClient() {
               type="search"
               value={orderHistorySearch}
               onChange={(event) => setOrderHistorySearch(event.target.value)}
-              placeholder="Search date, invoice, status, amounts…"
+              placeholder="Search date, invoice, amounts…"
               className="mt-4 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
             />
 
             <div className="mt-4 overflow-x-auto">
-              <table className="w-full min-w-[950px] border-collapse text-sm">
+              <table className="w-full min-w-[640px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-stroke text-left dark:border-dark-3">
                     <th className="px-3 py-2">Date</th>
                     <th className="px-3 py-2">Invoice</th>
-                    <th className="px-3 py-2">Payment</th>
-                    <th className="px-3 py-2">Order status</th>
                     <th className="px-3 py-2">Total</th>
                     <th className="px-3 py-2">Paid</th>
                     <th className="px-3 py-2">Remaining</th>
@@ -338,8 +334,6 @@ export function DashboardClient() {
                     <tr key={order.id} className="border-b border-stroke dark:border-dark-3">
                       <td className="px-3 py-3 whitespace-nowrap">{order.orderDate}</td>
                       <td className="px-3 py-3">{order.invoiceNumber ?? `Order #${order.id}`}</td>
-                      <td className="px-3 py-3 capitalize">{order.paymentType}</td>
-                      <td className="px-3 py-3 capitalize">{order.status}</td>
                       <td className="px-3 py-3">{order.totalAmount.toFixed(2)}</td>
                       <td className="px-3 py-3 text-green-600 dark:text-green-400">
                         {order.recoveredAmount.toFixed(2)}
