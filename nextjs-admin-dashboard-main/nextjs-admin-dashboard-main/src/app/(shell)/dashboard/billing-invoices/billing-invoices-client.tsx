@@ -1,8 +1,10 @@
 "use client";
 
+import { mergeBottleSizeSuggestions } from "@/lib/bottle-sizes";
 import { BRAND } from "@/lib/brand";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Client = {
@@ -16,6 +18,7 @@ type InvoiceItem = {
   id: number;
   productName: string;
   bottleType: "mix" | "pure" | null;
+  bottleSize: string | null;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -36,6 +39,7 @@ type InvoiceRecord = {
 type DraftItem = {
   productName: string;
   bottleType: "" | "mix" | "pure";
+  bottleSize: string;
   quantity: string;
   unitPrice: string;
 };
@@ -43,6 +47,7 @@ type DraftItem = {
 const defaultDraftItem: DraftItem = {
   productName: "",
   bottleType: "",
+  bottleSize: "",
   quantity: "",
   unitPrice: "",
 };
@@ -109,6 +114,7 @@ export function BillingInvoicesClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [invoiceListSearch, setInvoiceListSearch] = useState("");
 
   const [form, setForm] = useState({
     clientId: "",
@@ -119,6 +125,9 @@ export function BillingInvoicesClient() {
     notes: "",
   });
   const [items, setItems] = useState<DraftItem[]>([{ ...defaultDraftItem }]);
+  const [bottleSizeSuggestions, setBottleSizeSuggestions] = useState<string[]>(() =>
+    mergeBottleSizeSuggestions([]),
+  );
 
   const loadClients = async () => {
     const response = await fetch("/api/clients", { cache: "no-store" });
@@ -144,8 +153,38 @@ export function BillingInvoicesClient() {
       throw new Error(payload?.message ?? "Unable to load invoices.");
     }
     const payload = (await response.json()) as { invoices: InvoiceRecord[] };
-    setInvoices(payload.invoices);
+    setInvoices(
+      payload.invoices.map((inv) => ({
+        ...inv,
+        items: inv.items.map((i) => ({
+          ...i,
+          bottleSize: i.bottleSize ?? null,
+        })),
+      })),
+    );
   };
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch("/api/inventory", { cache: "no-store" });
+        if (!r.ok) {
+          setBottleSizeSuggestions(mergeBottleSizeSuggestions([]));
+          return;
+        }
+        const data = (await r.json()) as {
+          items: Array<{ materialType: string; name: string }>;
+        };
+        const names = data.items
+          .filter((i) => i.materialType === "bottle")
+          .map((i) => String(i.name ?? "").trim())
+          .filter(Boolean);
+        setBottleSizeSuggestions(mergeBottleSizeSuggestions(names));
+      } catch {
+        setBottleSizeSuggestions(mergeBottleSizeSuggestions([]));
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -179,6 +218,35 @@ export function BillingInvoicesClient() {
     [items],
   );
 
+  const filteredInvoices = useMemo(() => {
+    const q = invoiceListSearch.trim().toLowerCase();
+    if (!q) return invoices;
+    return invoices.filter((inv) => {
+      const itemsText = inv.items
+        .map(
+          (i) =>
+            `${i.productName} ${i.bottleSize ?? ""} ${i.bottleType ?? ""} ${i.quantity} ${i.unitPrice}`,
+        )
+        .join(" ");
+      const blob = [
+        inv.invoiceNumber,
+        inv.invoiceDate,
+        formatPkDateTime(inv.invoiceDate),
+        inv.client.name,
+        inv.client.email ?? "",
+        inv.client.contactNumber ?? "",
+        inv.status,
+        inv.paymentType,
+        String(inv.totalAmount),
+        inv.notes ?? "",
+        itemsText,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [invoices, invoiceListSearch]);
+
   const addItemRow = () => {
     setItems((previous) => [...previous, { ...defaultDraftItem }]);
   };
@@ -209,6 +277,7 @@ export function BillingInvoicesClient() {
         .map((item) => ({
           productName: item.productName.trim(),
           bottleType: item.bottleType === "" ? null : item.bottleType,
+          bottleSize: item.bottleSize.trim(),
           quantity: Number(item.quantity),
           unitPrice: Number(item.unitPrice),
         }))
@@ -216,6 +285,14 @@ export function BillingInvoicesClient() {
 
       if (payloadItems.length === 0) {
         throw new Error("Add at least one item with product name.");
+      }
+      const missingSize = payloadItems.find((item) => !item.bottleSize);
+      if (missingSize) {
+        throw new Error("Each line needs a bottle size (choose a suggestion or type your own).");
+      }
+      const sizeTooLong = payloadItems.find((item) => item.bottleSize.length > 80);
+      if (sizeTooLong) {
+        throw new Error("Bottle size must be 80 characters or less on each line.");
       }
 
       const response = await fetch("/api/invoices", {
@@ -316,7 +393,7 @@ export function BillingInvoicesClient() {
 
     const tableBody = invoice.items.map((item, index) => [
       String(index + 1),
-      `${item.productName}${item.bottleType ? ` (${item.bottleType})` : ""}`,
+      `${item.productName}${item.bottleSize ? ` · ${item.bottleSize}` : ""}${item.bottleType ? ` (${item.bottleType})` : ""}`,
       item.quantity.toFixed(2),
       item.unitPrice.toFixed(2),
       item.totalPrice.toFixed(2),
@@ -378,6 +455,14 @@ export function BillingInvoicesClient() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-[10px] border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-dark dark:text-white">
+        <span className="font-medium">Recommended:</span> create sales orders (with auto-invoice and optional advance) on the{" "}
+        <Link href="/dashboard/orders" className="text-primary underline-offset-2 hover:underline">
+          Orders
+        </Link>{" "}
+        page first. Use this screen for extra invoices or legacy entries; PDF download works the same for all invoices.
+      </div>
+
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <h2 className="text-xl font-semibold text-dark dark:text-white">Generate computerized invoice</h2>
         <p className="mt-1 text-sm text-dark-5 dark:text-dark-6">
@@ -463,12 +548,19 @@ export function BillingInvoicesClient() {
             />
           </div>
 
+          <datalist id="billing-bottle-size-suggestions">
+            {bottleSizeSuggestions.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-sm">
+            <table className="w-full min-w-[1020px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-stroke text-left dark:border-dark-3">
                   <th className="px-3 py-2">Item</th>
                   <th className="px-3 py-2">Bottle Type</th>
+                  <th className="px-3 py-2">Bottle size</th>
                   <th className="px-3 py-2">Quantity</th>
                   <th className="px-3 py-2">Unit Price</th>
                   <th className="px-3 py-2">Line Total</th>
@@ -513,6 +605,18 @@ export function BillingInvoicesClient() {
                           <option value="mix">mix</option>
                           <option value="pure">pure</option>
                         </select>
+                      </td>
+                      <td className="px-3 py-3">
+                        <input
+                          className="w-full min-w-[120px] rounded border border-stroke bg-transparent px-2 py-1 dark:border-dark-3"
+                          list="billing-bottle-size-suggestions"
+                          value={item.bottleSize}
+                          onChange={(event) =>
+                            updateItem(index, { bottleSize: event.target.value })
+                          }
+                          placeholder="e.g. 500ml"
+                          maxLength={80}
+                        />
                       </td>
                       <td className="px-3 py-3">
                         <input
@@ -584,6 +688,17 @@ export function BillingInvoicesClient() {
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <h2 className="text-xl font-semibold text-dark dark:text-white">Generated invoices</h2>
+        <label htmlFor="generated-invoices-search" className="sr-only">
+          Search generated invoices
+        </label>
+        <input
+          id="generated-invoices-search"
+          type="search"
+          value={invoiceListSearch}
+          onChange={(e) => setInvoiceListSearch(e.target.value)}
+          placeholder="Search invoice #, client, date, items, amount…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[1100px] border-collapse text-sm">
             <thead>
@@ -597,7 +712,7 @@ export function BillingInvoicesClient() {
               </tr>
             </thead>
             <tbody>
-              {invoices.map((invoice) => (
+              {filteredInvoices.map((invoice) => (
                 <tr key={invoice.id} className="border-b border-stroke align-top dark:border-dark-3">
                   <td className="px-3 py-3 font-medium">{invoice.invoiceNumber}</td>
                   <td className="px-3 py-3 whitespace-nowrap">
@@ -613,7 +728,7 @@ export function BillingInvoicesClient() {
                     {invoice.items
                       .map(
                         (item) =>
-                          `${item.productName}${item.bottleType ? ` (${item.bottleType})` : ""} x ${item.quantity}`,
+                          `${item.productName}${item.bottleSize ? ` · ${item.bottleSize}` : ""}${item.bottleType ? ` (${item.bottleType})` : ""} x ${item.quantity}`,
                       )
                       .join(", ")}
                   </td>
@@ -633,6 +748,8 @@ export function BillingInvoicesClient() {
           </table>
           {invoices.length === 0 ? (
             <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No invoices generated yet.</p>
+          ) : filteredInvoices.length === 0 ? (
+            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No invoices match your search.</p>
           ) : null}
         </div>
       </section>

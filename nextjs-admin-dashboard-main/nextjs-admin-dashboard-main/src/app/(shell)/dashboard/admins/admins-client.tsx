@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type SessionUser = {
   id: number;
@@ -31,6 +31,7 @@ export function AdminsClient() {
     email: "",
     password: "",
   });
+  const [adminListSearch, setAdminListSearch] = useState("");
 
   const loadAll = async () => {
     setLoading(true);
@@ -115,6 +116,23 @@ export function AdminsClient() {
     await loadAll();
   };
 
+  const filteredAdmins = useMemo(() => {
+    const q = adminListSearch.trim().toLowerCase();
+    if (!q) return admins;
+    return admins.filter((a) => {
+      const blob = [
+        a.name,
+        a.email,
+        a.createdByName ?? "",
+        String(a.id),
+        a.isActive ? "active" : "inactive",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [admins, adminListSearch]);
+
   if (loading) {
     return (
       <div className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
@@ -189,6 +207,18 @@ export function AdminsClient() {
 
         {error ? <p className="mt-3 text-sm text-red">{error}</p> : null}
 
+        <label htmlFor="admins-list-search" className="sr-only">
+          Search administrators
+        </label>
+        <input
+          id="admins-list-search"
+          type="search"
+          value={adminListSearch}
+          onChange={(e) => setAdminListSearch(e.target.value)}
+          placeholder="Search name, email, added by…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
+
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[800px] border-collapse">
             <thead>
@@ -201,7 +231,7 @@ export function AdminsClient() {
               </tr>
             </thead>
             <tbody>
-              {admins.map((a) => (
+              {filteredAdmins.map((a) => (
                 <tr key={a.id} className="border-b border-stroke dark:border-dark-3">
                   <td className="px-3 py-3">
                     <input
@@ -239,6 +269,9 @@ export function AdminsClient() {
               ))}
             </tbody>
           </table>
+          {admins.length > 0 && filteredAdmins.length === 0 ? (
+            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No administrators match your search.</p>
+          ) : null}
         </div>
       </section>
     </div>

@@ -1,7 +1,6 @@
 import { dbExecute } from "@/lib/db";
 import { columnExists, indexExists } from "@/lib/schema-utils";
 
-/* eslint-disable no-var */
 declare global {
   var __erpEnsureClientsSchemaPromise: Promise<void> | undefined;
 }

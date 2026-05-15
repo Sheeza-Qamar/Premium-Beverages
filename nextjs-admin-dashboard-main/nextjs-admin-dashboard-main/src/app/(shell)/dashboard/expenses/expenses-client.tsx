@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Summary = {
   totalIncome: number;
@@ -61,6 +61,7 @@ export function ExpensesClient() {
     category: "",
     description: "",
   });
+  const [expenseListSearch, setExpenseListSearch] = useState("");
 
   const loadData = async () => {
     const response = await fetch("/api/expenses", { cache: "no-store" });
@@ -93,6 +94,25 @@ export function ExpensesClient() {
       }
     })();
   }, []);
+
+  const filteredExpenses = useMemo(() => {
+    const q = expenseListSearch.trim().toLowerCase();
+    if (!q) return expenses;
+    return expenses.filter((ex) => {
+      const blob = [
+        ex.title,
+        ex.expenseDate,
+        ex.category ?? "",
+        ex.description ?? "",
+        ex.createdByName ?? "",
+        ex.amount.toFixed(2),
+        String(ex.id),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [expenses, expenseListSearch]);
 
   const submitExpense = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -288,6 +308,17 @@ export function ExpensesClient() {
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <h2 className="text-xl font-semibold text-dark dark:text-white">Expense records</h2>
+        <label htmlFor="expense-records-search" className="sr-only">
+          Search expense records
+        </label>
+        <input
+          id="expense-records-search"
+          type="search"
+          value={expenseListSearch}
+          onChange={(e) => setExpenseListSearch(e.target.value)}
+          placeholder="Search title, date, category, description, amount…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[1100px] border-collapse text-sm">
             <thead>
@@ -301,7 +332,7 @@ export function ExpensesClient() {
               </tr>
             </thead>
             <tbody>
-              {expenses.map((expense) => (
+              {filteredExpenses.map((expense) => (
                 <tr key={expense.id} className="border-b border-stroke dark:border-dark-3">
                   <td className="px-3 py-3 whitespace-nowrap">{expense.expenseDate}</td>
                   <td className="px-3 py-3">{expense.title}</td>
@@ -315,6 +346,8 @@ export function ExpensesClient() {
           </table>
           {expenses.length === 0 ? (
             <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No expenses recorded yet.</p>
+          ) : filteredExpenses.length === 0 ? (
+            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No rows match your search.</p>
           ) : null}
         </div>
       </section>

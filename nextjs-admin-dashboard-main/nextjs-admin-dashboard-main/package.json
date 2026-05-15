@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "next build --webpack",
+    "start": "node ./scripts/ensure-next-prod.mjs",
     "lint": "eslint ."
   },
   "dependencies": {
@@ -14,6 +14,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.13",
+    "docx-preview": "^0.3.7",
     "flatpickr": "^4.6.13",
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^4.2.1",
@@ -30,6 +31,7 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22",
     "@types/qrcode": "^1.5.6",

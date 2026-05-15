@@ -1,5 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { dbQuery, type DbRow, withTransaction } from "@/lib/db";
+import { generateInvoiceNumber } from "@/lib/invoice-number";
+import { ensureOrdersSchema } from "@/lib/orders-schema";
 import { parseNonNegativeNumber, toOptionalTrimmedString } from "@/lib/validation";
 import type { PoolConnection, ResultSetHeader } from "mysql2/promise";
 import { NextResponse } from "next/server";
@@ -25,6 +27,7 @@ type OrderItemRow = DbRow & {
   id: number;
   product_name: string;
   bottle_type: "mix" | "pure" | null;
+  bottle_size: string | null;
   quantity: string;
   unit_price: string;
   total_price: string;
@@ -36,6 +39,7 @@ type ClientRow = DbRow & { id: number };
 type CreateItemInput = {
   productName: string;
   bottleType: "mix" | "pure" | null;
+  bottleSize: string | null;
   quantity: number;
   unitPrice: number;
 };
@@ -44,47 +48,12 @@ function isValidDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function parseInvoiceSuffix(invoiceNumber: string, prefix: string) {
-  if (!invoiceNumber.startsWith(prefix)) {
-    return null;
-  }
-  const suffix = invoiceNumber.slice(prefix.length);
-  if (!/^\d{4}$/.test(suffix)) {
-    return null;
-  }
-  return Number(suffix);
-}
-
-async function generateInvoiceNumber(conn: PoolConnection, invoiceDate: string) {
-  const prefix = `INV-${invoiceDate.replaceAll("-", "")}-`;
-  const [rows] = await conn.query<(DbRow & { invoice_number: string | null })[]>(
-    `SELECT invoice_number
-     FROM orders
-     WHERE invoice_number LIKE ?
-     ORDER BY invoice_number DESC
-     LIMIT 20`,
-    [`${prefix}%`],
-  );
-
-  let maxSuffix = 0;
-  for (const row of rows) {
-    if (!row.invoice_number) {
-      continue;
-    }
-    const suffix = parseInvoiceSuffix(row.invoice_number, prefix);
-    if (suffix && suffix > maxSuffix) {
-      maxSuffix = suffix;
-    }
-  }
-
-  return `${prefix}${String(maxSuffix + 1).padStart(4, "0")}`;
-}
-
 export async function GET() {
   const auth = await requireAuth();
   if (!auth.ok) {
     return auth.response;
   }
+  await ensureOrdersSchema();
   const [rows] = await dbQuery<InvoiceRow[]>(
     `SELECT
        o.id,
@@ -112,6 +81,7 @@ export async function GET() {
     id: number;
     productName: string;
     bottleType: "mix" | "pure" | null;
+    bottleSize: string | null;
     quantity: number;
     unitPrice: number;
     totalPrice: number;
@@ -126,6 +96,7 @@ export async function GET() {
          id,
          product_name,
          bottle_type,
+         bottle_size,
          quantity,
          unit_price,
          total_price,
@@ -142,6 +113,7 @@ export async function GET() {
         id: item.id,
         productName: item.product_name,
         bottleType: item.bottle_type,
+        bottleSize: item.bottle_size ? String(item.bottle_size).trim() : null,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unit_price),
         totalPrice: Number(item.total_price),
@@ -153,6 +125,7 @@ export async function GET() {
       id: number;
       productName: string;
       bottleType: "mix" | "pure" | null;
+      bottleSize: string | null;
       quantity: number;
       unitPrice: number;
       totalPrice: number;
@@ -187,6 +160,7 @@ export async function POST(request: Request) {
   if (!auth.ok) {
     return auth.response;
   }
+  await ensureOrdersSchema();
   const body = await request.json().catch(() => null);
   const clientId = Number(body?.clientId);
   const invoiceDate = String(body?.invoiceDate ?? "").trim();
@@ -227,12 +201,26 @@ export async function POST(request: Request) {
     const bottleTypeRaw = (item as { bottleType?: unknown })?.bottleType;
     const bottleType =
       bottleTypeRaw === "mix" || bottleTypeRaw === "pure" ? bottleTypeRaw : null;
+    const bottleSizeRaw = toOptionalTrimmedString(
+      (item as { bottleSize?: unknown })?.bottleSize,
+    );
+    const bottleSize = bottleSizeRaw && bottleSizeRaw.length > 0 ? bottleSizeRaw : null;
     const quantity = parseNonNegativeNumber((item as { quantity?: unknown })?.quantity);
     const unitPrice = parseNonNegativeNumber((item as { unitPrice?: unknown })?.unitPrice);
 
     if (!productName) {
       return NextResponse.json(
         { message: `Item ${index + 1}: product name is required.` },
+        { status: 400 },
+      );
+    }
+    if (!bottleSize || bottleSize.length > 80) {
+      return NextResponse.json(
+        {
+          message: !bottleSize
+            ? `Item ${index + 1}: bottle size is required.`
+            : `Item ${index + 1}: bottle size must be 80 characters or less.`,
+        },
         { status: 400 },
       );
     }
@@ -249,7 +237,7 @@ export async function POST(request: Request) {
       );
     }
 
-    items.push({ productName, bottleType, quantity, unitPrice });
+    items.push({ productName, bottleType, bottleSize, quantity, unitPrice });
   }
 
   try {
@@ -283,12 +271,13 @@ export async function POST(request: Request) {
         const totalPrice = item.quantity * item.unitPrice;
         await conn.execute<ResultSetHeader>(
           `INSERT INTO order_items
-           (order_id, product_name, bottle_type, quantity, unit_price, total_price, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (order_id, product_name, bottle_type, bottle_size, quantity, unit_price, total_price, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             orderResult.insertId,
             item.productName,
             item.bottleType,
+            item.bottleSize,
             item.quantity,
             item.unitPrice,
             totalPrice,

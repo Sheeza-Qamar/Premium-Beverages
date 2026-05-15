@@ -1,7 +1,9 @@
 "use client";
 
-import { BRAND } from "@/lib/brand";
-import jsPDF from "jspdf";
+import {
+  downloadPaymentReceiptPdf,
+  toPaymentReceiptInput,
+} from "@/lib/finance-pdfs";
 import { useEffect, useMemo, useState } from "react";
 
 type Summary = {
@@ -33,62 +35,10 @@ type PaymentRecord = {
   referenceNote: string | null;
   createdAt: string;
   receiptNumber: string;
+  orderTotalAmount?: number | null;
+  paidPriorToThisReceipt?: number;
+  outstandingAfterThisReceipt?: number | null;
 };
-
-function formatPkDateTime(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("en-PK", {
-    timeZone: "Asia/Karachi",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(parsed);
-}
-
-async function loadImageAsDataUrl(path: string): Promise<string | null> {
-  try {
-    const response = await fetch(path, { cache: "force-cache" });
-    if (!response.ok) {
-      return null;
-    }
-    const imageBlob = await response.blob();
-    const blobUrl = URL.createObjectURL(imageBlob);
-    const image = new Image();
-    image.decoding = "async";
-    image.src = blobUrl;
-    await image.decode();
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 420;
-    canvas.height = 420;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      URL.revokeObjectURL(blobUrl);
-      return null;
-    }
-    const size = Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height);
-    const sx = ((image.naturalWidth || image.width) - size) / 2;
-    const sy = ((image.naturalHeight || image.height) - size) / 2;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.beginPath();
-    ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2, 0, Math.PI * 2);
-    ctx.closePath();
-    ctx.clip();
-    ctx.drawImage(image, sx, sy, size, size, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(blobUrl);
-    return canvas.toDataURL("image/png", 0.92);
-  } catch {
-    return null;
-  }
-}
 
 export function PaymentsRecoveryClient() {
   const [summary, setSummary] = useState<Summary>({
@@ -102,6 +52,8 @@ export function PaymentsRecoveryClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [receivablesTableSearch, setReceivablesTableSearch] = useState("");
+  const [paymentsTableSearch, setPaymentsTableSearch] = useState("");
 
   const [form, setForm] = useState({
     clientId: "",
@@ -171,6 +123,46 @@ export function PaymentsRecoveryClient() {
     return receivables.find((row) => row.orderId === orderId) ?? null;
   }, [form.orderId, receivables]);
 
+  const filteredReceivablesTable = useMemo(() => {
+    const q = receivablesTableSearch.trim().toLowerCase();
+    if (!q) return receivables;
+    return receivables.filter((row) => {
+      const blob = [
+        row.invoiceNumber ?? "",
+        `order #${row.orderId}`,
+        String(row.orderId),
+        row.clientName,
+        row.orderDate,
+        row.totalAmount.toFixed(2),
+        row.recoveredAmount.toFixed(2),
+        row.pendingAmount.toFixed(2),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [receivables, receivablesTableSearch]);
+
+  const filteredPaymentsTable = useMemo(() => {
+    const q = paymentsTableSearch.trim().toLowerCase();
+    if (!q) return payments;
+    return payments.filter((p) => {
+      const blob = [
+        p.paymentDate,
+        p.receiptNumber,
+        p.clientName,
+        p.invoiceNumber ?? "",
+        p.paymentMethod,
+        p.referenceNote ?? "",
+        p.amountPaid.toFixed(2),
+        String(p.id),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [payments, paymentsTableSearch]);
+
   const submitPayment = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSaving(true);
@@ -232,77 +224,6 @@ export function PaymentsRecoveryClient() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const downloadPaymentReceiptPdf = async (payment: PaymentRecord) => {
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const left = 42;
-    const right = pageWidth - 42;
-
-    doc.setDrawColor(228, 231, 236);
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(30, 24, pageWidth - 60, 112, 12, 12, "FD");
-
-    const logoDataUrl =
-      (await loadImageAsDataUrl("/images/logo/elegant-premium-beverages-logo.png")) ??
-      (await loadImageAsDataUrl("/images/logo/logo.svg"));
-    if (logoDataUrl) {
-      doc.addImage(logoDataUrl, "PNG", left + 4, 34, 72, 72);
-    } else {
-      doc.setTextColor(15, 23, 42);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.text(BRAND.name, left, 62);
-    }
-
-    doc.setTextColor(30, 41, 59);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.text("PAYMENT RECEIPT", right, 54, { align: "right" });
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Receipt #: ${payment.receiptNumber}`, right, 74, { align: "right" });
-    doc.text(`Issued: ${formatPkDateTime(payment.createdAt)}`, right, 89, { align: "right" });
-    doc.text(`Payment Date: ${payment.paymentDate}`, right, 104, { align: "right" });
-
-    doc.setDrawColor(228, 231, 236);
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(left, 152, pageWidth - 84, 154, 8, 8, "FD");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
-    doc.text("Received From", left + 12, 172);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10.5);
-    doc.setTextColor(51, 65, 85);
-    doc.text(`Client: ${payment.clientName}`, left + 12, 191);
-    doc.text(`Invoice: ${payment.invoiceNumber ?? "N/A"}`, left + 12, 208);
-    doc.text(`Payment Method: ${payment.paymentMethod}`, left + 12, 225);
-    doc.text(`Reference: ${payment.referenceNote ?? "N/A"}`, left + 12, 242);
-
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(right - 230, 248, 230, 52, 8, 8, "F");
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105);
-    doc.text("Amount Received", right - 214, 269);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text(payment.amountPaid.toFixed(2), right - 16, 282, { align: "right" });
-
-    doc.setDrawColor(226, 232, 240);
-    doc.line(left, 760, right, 760);
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text("This is a system-generated receipt and can be used as payment proof.", left, 778);
-    doc.text("Thank you for your prompt payment.", right, 778, { align: "right" });
-
-    doc.save(`${payment.receiptNumber}.pdf`);
   };
 
   if (loading) {
@@ -449,6 +370,17 @@ export function PaymentsRecoveryClient() {
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <h2 className="text-xl font-semibold text-dark dark:text-white">Outstanding receivables</h2>
+        <label htmlFor="receivables-table-search" className="sr-only">
+          Search receivables
+        </label>
+        <input
+          id="receivables-table-search"
+          type="search"
+          value={receivablesTableSearch}
+          onChange={(e) => setReceivablesTableSearch(e.target.value)}
+          placeholder="Search invoice, client, date, amounts…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[1000px] border-collapse text-sm">
             <thead>
@@ -462,7 +394,7 @@ export function PaymentsRecoveryClient() {
               </tr>
             </thead>
             <tbody>
-              {receivables.map((row) => (
+              {filteredReceivablesTable.map((row) => (
                 <tr key={row.orderId} className="border-b border-stroke dark:border-dark-3">
                   <td className="px-3 py-3">{row.invoiceNumber ?? `Order #${row.orderId}`}</td>
                   <td className="px-3 py-3">{row.clientName}</td>
@@ -478,12 +410,25 @@ export function PaymentsRecoveryClient() {
           </table>
           {receivables.length === 0 ? (
             <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No receivable invoices found.</p>
+          ) : filteredReceivablesTable.length === 0 ? (
+            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No rows match your search.</p>
           ) : null}
         </div>
       </section>
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <h2 className="text-xl font-semibold text-dark dark:text-white">Payment history</h2>
+        <label htmlFor="payments-history-table-search" className="sr-only">
+          Search payment history
+        </label>
+        <input
+          id="payments-history-table-search"
+          type="search"
+          value={paymentsTableSearch}
+          onChange={(e) => setPaymentsTableSearch(e.target.value)}
+          placeholder="Search date, receipt #, client, invoice, method, amount…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[1200px] border-collapse text-sm">
             <thead>
@@ -499,7 +444,7 @@ export function PaymentsRecoveryClient() {
               </tr>
             </thead>
             <tbody>
-              {payments.map((payment) => (
+              {filteredPaymentsTable.map((payment) => (
                 <tr key={payment.id} className="border-b border-stroke dark:border-dark-3">
                   <td className="px-3 py-3 whitespace-nowrap">{payment.paymentDate}</td>
                   <td className="px-3 py-3 font-medium">{payment.receiptNumber}</td>
@@ -511,7 +456,11 @@ export function PaymentsRecoveryClient() {
                   <td className="px-3 py-3">
                     <button
                       type="button"
-                      onClick={() => void downloadPaymentReceiptPdf(payment)}
+                      onClick={() =>
+                        void downloadPaymentReceiptPdf(
+                          toPaymentReceiptInput(payment, payments),
+                        )
+                      }
                       className="rounded-lg border border-stroke px-3 py-1.5 text-xs font-medium hover:bg-gray-2 dark:border-dark-3 dark:hover:bg-dark-2"
                     >
                       Download receipt
@@ -523,6 +472,8 @@ export function PaymentsRecoveryClient() {
           </table>
           {payments.length === 0 ? (
             <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No payments recorded yet.</p>
+          ) : filteredPaymentsTable.length === 0 ? (
+            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No rows match your search.</p>
           ) : null}
         </div>
       </section>

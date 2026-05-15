@@ -3,13 +3,13 @@ import type { Metadata } from "next";
 import { OrdersClient } from "./orders-client";
 
 export const metadata: Metadata = {
-  title: "Orders",
+  title: "Orders & payments",
 };
 
 export default function OrdersPage() {
   return (
     <>
-      <Breadcrumb pageName="Orders" />
+      <Breadcrumb pageName="Orders & payments" />
       <OrdersClient />
     </>
   );

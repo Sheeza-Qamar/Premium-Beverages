@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BRAND } from "@/lib/brand";
 import type { ApexOptions } from "apexcharts";
 import dynamic from "next/dynamic";
@@ -105,6 +105,7 @@ export function DashboardClient() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [orderHistorySearch, setOrderHistorySearch] = useState("");
 
   const loadDashboard = async (clientId?: number) => {
     const query = clientId ? `?clientId=${clientId}` : "";
@@ -146,6 +147,32 @@ export function DashboardClient() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setOrderHistorySearch("");
+  }, [data.selectedClientId, data.clientDashboard?.clientId]);
+
+  const filteredClientOrderHistory = useMemo(() => {
+    const orders = data.clientDashboard?.orderHistory ?? [];
+    const q = orderHistorySearch.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter((order) => {
+      const blob = [
+        order.orderDate,
+        order.invoiceNumber ?? "",
+        `order #${order.id}`,
+        String(order.id),
+        order.paymentType,
+        order.status,
+        order.totalAmount.toFixed(2),
+        order.recoveredAmount.toFixed(2),
+        order.pendingAmount.toFixed(2),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [data.clientDashboard, orderHistorySearch]);
 
   if (loading) {
     return (
@@ -281,6 +308,18 @@ export function DashboardClient() {
               />
             </div>
 
+            <label htmlFor="dashboard-order-history-search" className="sr-only">
+              Search order history
+            </label>
+            <input
+              id="dashboard-order-history-search"
+              type="search"
+              value={orderHistorySearch}
+              onChange={(event) => setOrderHistorySearch(event.target.value)}
+              placeholder="Search date, invoice, status, amounts…"
+              className="mt-4 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+            />
+
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[950px] border-collapse text-sm">
                 <thead>
@@ -288,14 +327,14 @@ export function DashboardClient() {
                     <th className="px-3 py-2">Date</th>
                     <th className="px-3 py-2">Invoice</th>
                     <th className="px-3 py-2">Payment</th>
-                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Order status</th>
                     <th className="px-3 py-2">Total</th>
                     <th className="px-3 py-2">Paid</th>
                     <th className="px-3 py-2">Remaining</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.clientDashboard.orderHistory.map((order) => (
+                  {filteredClientOrderHistory.map((order) => (
                     <tr key={order.id} className="border-b border-stroke dark:border-dark-3">
                       <td className="px-3 py-3 whitespace-nowrap">{order.orderDate}</td>
                       <td className="px-3 py-3">{order.invoiceNumber ?? `Order #${order.id}`}</td>
@@ -312,6 +351,8 @@ export function DashboardClient() {
               </table>
               {data.clientDashboard.orderHistory.length === 0 ? (
                 <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No order history for this client.</p>
+              ) : filteredClientOrderHistory.length === 0 ? (
+                <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No orders match your search.</p>
               ) : null}
             </div>
           </>

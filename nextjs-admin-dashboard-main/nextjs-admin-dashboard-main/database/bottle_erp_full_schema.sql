@@ -52,13 +52,19 @@ CREATE TABLE IF NOT EXISTS `raw_materials` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(160) NOT NULL,
   `unit` ENUM('pcs','kg') NOT NULL,
-  `material_type` ENUM('bottle','cap','label','plastic','other') NOT NULL DEFAULT 'other',
+  `material_type` ENUM('bottle','label','other') NOT NULL DEFAULT 'other',
   `bottle_type` ENUM('mix','pure') DEFAULT NULL,
+  `client_id` BIGINT UNSIGNED DEFAULT NULL,
+  `client_label_id` BIGINT UNSIGNED DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_raw_materials_type` (`material_type`),
-  KEY `idx_raw_materials_bottle_type` (`bottle_type`)
+  KEY `idx_raw_materials_bottle_type` (`bottle_type`),
+  KEY `idx_raw_materials_client` (`client_id`),
+  KEY `idx_raw_materials_client_label` (`client_label_id`),
+  UNIQUE KEY `uq_raw_materials_client_label_id` (`client_label_id`),
+  CONSTRAINT `fk_raw_materials_client` FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `inventory` (
@@ -94,6 +100,7 @@ CREATE TABLE IF NOT EXISTS `client_labels` (
 CREATE TABLE IF NOT EXISTS `production` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `client_id` BIGINT UNSIGNED NOT NULL,
+  `order_id` BIGINT UNSIGNED DEFAULT NULL,
   `bottle_type` ENUM('mix','pure') NOT NULL,
   `quantity_produced` DECIMAL(18,4) NOT NULL DEFAULT 0,
   `production_date` DATE NOT NULL,
@@ -103,9 +110,11 @@ CREATE TABLE IF NOT EXISTS `production` (
   `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_production_client` (`client_id`),
+  KEY `idx_production_order` (`order_id`),
   KEY `idx_production_date` (`production_date`),
   KEY `idx_production_created_by` (`created_by`),
   CONSTRAINT `fk_production_client` FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_production_order` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `fk_production_admin` FOREIGN KEY (`created_by`) REFERENCES `admins` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -162,6 +171,7 @@ CREATE TABLE IF NOT EXISTS `order_items` (
   `order_id` BIGINT UNSIGNED NOT NULL,
   `product_name` VARCHAR(200) NOT NULL,
   `bottle_type` ENUM('mix','pure') DEFAULT NULL,
+  `bottle_size` VARCHAR(80) DEFAULT NULL,
   `quantity` DECIMAL(18,4) NOT NULL,
   `unit_price` DECIMAL(18,2) NOT NULL,
   `total_price` DECIMAL(18,2) NOT NULL,

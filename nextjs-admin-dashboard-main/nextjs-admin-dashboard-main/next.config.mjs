@@ -1,7 +1,9 @@
 /** @type {import("next").NextConfig} */
 const nextConfig = {
+  // Hide the floating Next.js dev indicator ("N") in development.
+  devIndicators: false,
   images: {
-    qualities: [75, 100],
+    qualities: [75, 92, 100],
     remotePatterns: [
       {
         protocol: "https",

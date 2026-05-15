@@ -43,8 +43,8 @@ export default function SignIn() {
                 Welcome Back
               </h1>
               <p className="mt-4 text-base text-white/80">
-                Sign in to manage inventory, production, billing, recovery, and
-                client ledgers in one secure dashboard.
+                Sign in to manage inventory, production, orders, payments, invoices,
+                and client ledgers in one secure dashboard.
               </p>
             </div>
           </div>

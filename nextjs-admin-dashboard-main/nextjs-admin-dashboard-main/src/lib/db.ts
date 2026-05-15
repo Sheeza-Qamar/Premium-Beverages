@@ -8,7 +8,6 @@ import mysql, {
   type RowDataPacket,
 } from "mysql2/promise";
 
-/* eslint-disable no-var */
 declare global {
   var __erpDbPool: Pool | undefined;
 }

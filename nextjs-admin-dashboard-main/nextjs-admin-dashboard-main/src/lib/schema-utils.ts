@@ -31,3 +31,18 @@ export async function indexExists(
   );
   return Number(rows[0]?.total ?? 0) > 0;
 }
+
+export async function tableConstraintExists(
+  tableName: string,
+  constraintName: string,
+): Promise<boolean> {
+  const [rows] = await dbQuery<CountRow[]>(
+    `SELECT COUNT(*) AS total
+     FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND CONSTRAINT_NAME = ?`,
+    [tableName, constraintName],
+  );
+  return Number(rows[0]?.total ?? 0) > 0;
+}

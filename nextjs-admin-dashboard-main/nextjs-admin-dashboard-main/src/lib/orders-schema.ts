@@ -1,7 +1,6 @@
 import { dbExecute } from "@/lib/db";
 import { columnExists } from "@/lib/schema-utils";
 
-/* eslint-disable no-var */
 declare global {
   var __erpEnsureOrdersSchemaPromise: Promise<void> | undefined;
 }
@@ -26,6 +25,13 @@ export async function ensureOrdersSchema() {
     if (!hasBottleType) {
       await dbExecute(
         "ALTER TABLE order_items ADD COLUMN bottle_type ENUM('mix','pure') NULL AFTER product_name",
+      );
+    }
+
+    const hasBottleSize = await columnExists("order_items", "bottle_size");
+    if (!hasBottleSize) {
+      await dbExecute(
+        "ALTER TABLE order_items ADD COLUMN bottle_size VARCHAR(80) NULL AFTER bottle_type",
       );
     }
   })().catch((error) => {

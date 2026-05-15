@@ -39,6 +39,7 @@ export function LedgerClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<string>("all");
+  const [ledgerEntrySearch, setLedgerEntrySearch] = useState("");
 
   const loadData = async () => {
     const response = await fetch("/api/ledger", { cache: "no-store" });
@@ -95,6 +96,28 @@ export function LedgerClient() {
       closingBalance: totals.totalDebit - totals.totalCredit,
     };
   }, [filteredEntries]);
+
+  const displayLedgerEntries = useMemo(() => {
+    const q = ledgerEntrySearch.trim().toLowerCase();
+    if (!q) return filteredEntries;
+    return filteredEntries.filter((entry) => {
+      const blob = [
+        entry.entryDate,
+        entry.clientName,
+        entry.referenceType,
+        String(entry.referenceId),
+        entry.invoiceNumber ?? "",
+        entry.paymentMethod ?? "",
+        entry.debit > 0 ? entry.debit.toFixed(2) : "",
+        entry.credit > 0 ? entry.credit.toFixed(2) : "",
+        entry.balance.toFixed(2),
+        entry.notes ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [filteredEntries, ledgerEntrySearch]);
 
   if (loading) {
     return (
@@ -155,6 +178,17 @@ export function LedgerClient() {
 
       <section className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
         <h2 className="text-xl font-semibold text-dark dark:text-white">Ledger entries</h2>
+        <label htmlFor="ledger-entries-search" className="sr-only">
+          Search ledger entries
+        </label>
+        <input
+          id="ledger-entries-search"
+          type="search"
+          value={ledgerEntrySearch}
+          onChange={(event) => setLedgerEntrySearch(event.target.value)}
+          placeholder="Search date, client, invoice, reference, amounts, notes…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[1200px] border-collapse text-sm">
             <thead>
@@ -170,7 +204,7 @@ export function LedgerClient() {
               </tr>
             </thead>
             <tbody>
-              {filteredEntries.map((entry) => (
+              {displayLedgerEntries.map((entry) => (
                 <tr key={entry.id} className="border-b border-stroke dark:border-dark-3">
                   <td className="px-3 py-3 whitespace-nowrap">{entry.entryDate}</td>
                   <td className="px-3 py-3">{entry.clientName}</td>
@@ -191,6 +225,8 @@ export function LedgerClient() {
           </table>
           {filteredEntries.length === 0 ? (
             <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No ledger entries found.</p>
+          ) : displayLedgerEntries.length === 0 ? (
+            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">No rows match your search.</p>
           ) : null}
         </div>
       </section>

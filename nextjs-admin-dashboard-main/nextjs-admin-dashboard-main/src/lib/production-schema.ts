@@ -1,7 +1,6 @@
 import { dbExecute } from "@/lib/db";
-import { columnExists } from "@/lib/schema-utils";
+import { columnExists, indexExists, tableConstraintExists } from "@/lib/schema-utils";
 
-/* eslint-disable no-var */
 declare global {
   var __erpEnsureProductionSchemaPromise: Promise<void> | undefined;
 }
@@ -19,6 +18,21 @@ export async function ensureProductionSchema() {
     if (!hasBottleType) {
       await dbExecute(
         "ALTER TABLE production ADD COLUMN bottle_type ENUM('mix','pure') NOT NULL DEFAULT 'mix' AFTER client_id",
+      );
+    }
+
+    const hasOrderId = await columnExists("production", "order_id");
+    if (!hasOrderId) {
+      await dbExecute(
+        "ALTER TABLE production ADD COLUMN order_id BIGINT UNSIGNED NULL AFTER client_id",
+      );
+    }
+    if (!(await indexExists("production", "idx_production_order"))) {
+      await dbExecute("ALTER TABLE production ADD INDEX idx_production_order (order_id)");
+    }
+    if (!(await tableConstraintExists("production", "fk_production_order"))) {
+      await dbExecute(
+        "ALTER TABLE production ADD CONSTRAINT fk_production_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT",
       );
     }
   })().catch((error) => {

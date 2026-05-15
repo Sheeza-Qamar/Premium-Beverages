@@ -1,16 +1,11 @@
-import Breadcrumb from "@/components/Breadcrumbs/Breadcrumb";
 import type { Metadata } from "next";
-import { PaymentsRecoveryClient } from "./payments-recovery-client";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
-  title: "Payments & Recovery",
+  title: "Orders",
 };
 
+/** Payments merged into Orders — old bookmarks still work. */
 export default function PaymentsRecoveryPage() {
-  return (
-    <>
-      <Breadcrumb pageName="Payments & Recovery" />
-      <PaymentsRecoveryClient />
-    </>
-  );
+  redirect("/dashboard/orders");
 }

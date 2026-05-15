@@ -19,6 +19,7 @@ const PUBLIC_API_PREFIXES = [
 
 function isPublicPage(pathname: string) {
   if (pathname === "/favicon.ico") return true;
+  if (pathname === "/") return true;
   return PUBLIC_PATH_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );

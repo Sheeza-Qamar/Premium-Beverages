@@ -11,6 +11,8 @@ type PaymentRow = DbRow & {
   client_name: string;
   order_id: number | null;
   invoice_number: string | null;
+  order_total: string | null;
+  paid_prior_to_this: string | null;
   amount_paid: string;
   payment_date: string;
   payment_method: string;
@@ -54,6 +56,16 @@ export async function GET() {
        c.name AS client_name,
        p.order_id,
        o.invoice_number,
+       o.total_amount AS order_total,
+       (SELECT COALESCE(SUM(p2.amount_paid), 0)
+        FROM payments p2
+        WHERE p2.order_id = p.order_id
+          AND p.order_id IS NOT NULL
+          AND (
+            p2.payment_date < p.payment_date
+            OR (p2.payment_date = p.payment_date AND p2.id < p.id)
+          )
+       ) AS paid_prior_to_this,
        p.amount_paid,
        p.payment_date,
        p.payment_method,
@@ -107,19 +119,32 @@ export async function GET() {
       recoveredAmount: Number(row.recovered_amount),
       pendingAmount: Number(row.pending_amount),
     })),
-    payments: payments.map((row) => ({
-      id: row.id,
-      clientId: row.client_id,
-      clientName: row.client_name,
-      orderId: row.order_id,
-      invoiceNumber: row.invoice_number,
-      amountPaid: Number(row.amount_paid),
-      paymentDate: toIsoDateOnly(row.payment_date),
-      paymentMethod: row.payment_method,
-      referenceNote: row.reference_note,
-      createdAt: String(row.created_at),
-      receiptNumber: buildPaymentReceiptNumber(row.id, row.payment_date),
-    })),
+    payments: payments.map((row) => {
+      const orderTotal =
+        row.order_id != null && row.order_total != null ? Number(row.order_total) : null;
+      const paidPrior = Number(row.paid_prior_to_this ?? 0);
+      const amountPaid = Number(row.amount_paid);
+      const outstandingAfter =
+        orderTotal != null && Number.isFinite(orderTotal)
+          ? Math.max(orderTotal - paidPrior - amountPaid, 0)
+          : null;
+      return {
+        id: row.id,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        orderId: row.order_id,
+        invoiceNumber: row.invoice_number,
+        amountPaid,
+        paymentDate: toIsoDateOnly(row.payment_date),
+        paymentMethod: row.payment_method,
+        referenceNote: row.reference_note,
+        createdAt: String(row.created_at),
+        receiptNumber: buildPaymentReceiptNumber(row.id, row.payment_date),
+        orderTotalAmount: orderTotal,
+        paidPriorToThisReceipt: paidPrior,
+        outstandingAfterThisReceipt: outstandingAfter,
+      };
+    }),
   });
 }
 
@@ -171,9 +196,6 @@ export async function POST(request: Request) {
       }
       if (order.status === "cancelled") {
         throw new Error("Cannot record payment for cancelled order.");
-      }
-      if (!order.invoice_number) {
-        throw new Error("Order has no invoice number.");
       }
 
       const [paidRows] = await conn.query<(DbRow & { paid: string })[]>(

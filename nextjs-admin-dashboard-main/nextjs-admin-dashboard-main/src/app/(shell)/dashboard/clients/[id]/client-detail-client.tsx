@@ -3,7 +3,7 @@
 import { BRAND_LOGO_SRC } from "@/components/logo";
 import jsPDF from "jspdf";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 
 type Client = {
@@ -18,12 +18,9 @@ type Client = {
   cardUrl: string;
 };
 
-type Label = {
+type ClientLabel = {
   id: number;
   labelName: string;
-  quantityAvailable: number;
-  createdAt: string;
-  updatedAt: string;
 };
 
 async function loadImageAsDataUrl(path: string): Promise<string | null> {
@@ -65,22 +62,26 @@ async function loadImageAsDataUrl(path: string): Promise<string | null> {
 export function ClientDetailClient({ clientId }: { clientId: string }) {
   const id = Number(clientId);
   const [client, setClient] = useState<Client | null>(null);
-  const [labels, setLabels] = useState<Label[]>([]);
+  const [labels, setLabels] = useState<ClientLabel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
+
+  const [newLabelName, setNewLabelName] = useState("");
+  const [addingLabel, setAddingLabel] = useState(false);
+  const [labelsError, setLabelsError] = useState("");
+  const [editingLabelId, setEditingLabelId] = useState<number | null>(null);
+  const [editLabelDraft, setEditLabelDraft] = useState("");
+  const [savingLabelId, setSavingLabelId] = useState<number | null>(null);
+  const [deletingLabelId, setDeletingLabelId] = useState<number | null>(null);
+  const [labelLinesSearch, setLabelLinesSearch] = useState("");
 
   const [edit, setEdit] = useState({
     name: "",
     email: "",
     contactNumber: "",
     address: "",
-  });
-
-  const [newLabel, setNewLabel] = useState({
-    labelName: "",
-    quantityAvailable: "",
   });
 
   const load = useCallback(async () => {
@@ -96,6 +97,7 @@ export function ClientDetailClient({ clientId }: { clientId: string }) {
       if (r.status === 404) {
         setError("Client not found.");
         setClient(null);
+        setLabels([]);
         return;
       }
       if (!r.ok) {
@@ -104,10 +106,19 @@ export function ClientDetailClient({ clientId }: { clientId: string }) {
       }
       const data = (await r.json()) as {
         client: Client;
-        labels: Label[];
+        labels: {
+          id: number;
+          labelName: string;
+          quantityAvailable: number;
+        }[];
       };
       setClient(data.client);
-      setLabels(data.labels);
+      setLabels(
+        (data.labels ?? []).map((l) => ({
+          id: l.id,
+          labelName: l.labelName,
+        })),
+      );
       setEdit({
         name: data.client.name,
         email: data.client.email ?? "",
@@ -157,70 +168,88 @@ export function ClientDetailClient({ clientId }: { clientId: string }) {
     }
   };
 
-  const addLabel = async (e: React.FormEvent) => {
+  const addLabelLine = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-    setError("");
+    const name = newLabelName.trim();
+    if (!name) {
+      setLabelsError("Enter a label line name.");
+      return;
+    }
+    setAddingLabel(true);
+    setLabelsError("");
     try {
-      const qty =
-        newLabel.quantityAvailable.trim() === ""
-          ? 0
-          : Number(newLabel.quantityAvailable);
-      if (!Number.isFinite(qty) || qty < 0) {
-        setError("Quantity must be a valid non-negative number.");
-        return;
-      }
       const r = await fetch(`/api/clients/${id}/labels`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          labelName: newLabel.labelName.trim(),
-          quantityAvailable: qty,
-        }),
+        body: JSON.stringify({ labelName: name, quantityAvailable: 0 }),
       });
       if (!r.ok) {
         const p = (await r.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(p?.message ?? "Could not add label.");
+        throw new Error(p?.message ?? "Could not add label line.");
       }
-      setNewLabel({ labelName: "", quantityAvailable: "" });
+      setNewLabelName("");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Add label failed.");
+      setLabelsError(e instanceof Error ? e.message : "Could not add label line.");
     } finally {
-      setSaving(false);
+      setAddingLabel(false);
     }
   };
 
-  const patchLabel = async (
-    labelId: number,
-    patch: { labelName?: string; quantityAvailable?: number },
-  ) => {
-    setError("");
-    const r = await fetch(`/api/clients/${id}/labels/${labelId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!r.ok) {
-      const p = (await r.json().catch(() => null)) as { message?: string } | null;
-      setError(p?.message ?? "Update failed.");
+  const saveLabelRename = async (labelId: number) => {
+    const name = editLabelDraft.trim();
+    if (!name) {
+      setLabelsError("Label name cannot be empty.");
       return;
     }
-    await load();
+    setSavingLabelId(labelId);
+    setLabelsError("");
+    try {
+      const r = await fetch(`/api/clients/${id}/labels/${labelId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelName: name }),
+      });
+      if (!r.ok) {
+        const p = (await r.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(p?.message ?? "Could not update label.");
+      }
+      setEditingLabelId(null);
+      await load();
+    } catch (e) {
+      setLabelsError(e instanceof Error ? e.message : "Could not update label.");
+    } finally {
+      setSavingLabelId(null);
+    }
   };
 
-  const deleteLabel = async (labelId: number, labelName: string) => {
-    if (!window.confirm(`Remove label "${labelName}"?`)) return;
-    setError("");
-    const r = await fetch(`/api/clients/${id}/labels/${labelId}`, {
-      method: "DELETE",
-    });
-    if (!r.ok) {
-      const p = (await r.json().catch(() => null)) as { message?: string } | null;
-      setError(p?.message ?? "Delete failed.");
+  const deleteLabelLine = async (labelId: number) => {
+    if (
+      !window.confirm(
+        "Remove this label line? You cannot remove it if production or other records still reference it.",
+      )
+    ) {
       return;
     }
-    await load();
+    setDeletingLabelId(labelId);
+    setLabelsError("");
+    try {
+      const r = await fetch(`/api/clients/${id}/labels/${labelId}`, {
+        method: "DELETE",
+      });
+      if (!r.ok) {
+        const p = (await r.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(p?.message ?? "Could not remove label line.");
+      }
+      if (editingLabelId === labelId) {
+        setEditingLabelId(null);
+      }
+      await load();
+    } catch (e) {
+      setLabelsError(e instanceof Error ? e.message : "Could not remove label line.");
+    } finally {
+      setDeletingLabelId(null);
+    }
   };
 
   const downloadMembershipCardPdf = async () => {
@@ -304,6 +333,12 @@ export function ClientDetailClient({ clientId }: { clientId: string }) {
     doc.save(`membership-card-${client.id}-v3.pdf`);
   };
 
+  const filteredLabelLines = useMemo(() => {
+    const q = labelLinesSearch.trim().toLowerCase();
+    if (!q) return labels;
+    return labels.filter((l) => l.labelName.toLowerCase().includes(q));
+  }, [labels, labelLinesSearch]);
+
   if (loading) {
     return (
       <div className="rounded-xl border border-stroke/80 bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark">
@@ -380,11 +415,167 @@ export function ClientDetailClient({ clientId }: { clientId: string }) {
 
       <section className="rounded-xl border border-stroke/80 bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark">
         <h2 className="text-lg font-semibold text-dark dark:text-white">
+          Branded label lines
+        </h2>
+        <p className="mt-1 text-sm text-dark-5 dark:text-dark-6">
+          Add every print-shop label name for this client (for example Brand A 500ml). Quantities are
+          adjusted under{" "}
+          <Link href="/dashboard/inventory" className="font-medium text-primary hover:underline">
+            Inventory
+          </Link>{" "}
+          when you add or edit label stock (type Label — pick this client and the line).
+        </p>
+        {labelsError ? (
+          <p className="mt-3 text-sm text-red" role="alert">
+            {labelsError}
+          </p>
+        ) : null}
+
+        <label htmlFor="client-label-lines-search" className="sr-only">
+          Search label lines
+        </label>
+        <input
+          id="client-label-lines-search"
+          type="search"
+          value={labelLinesSearch}
+          onChange={(e) => setLabelLinesSearch(e.target.value)}
+          placeholder="Search label line name…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-3.5 py-2 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
+
+        <div className="mt-4 overflow-x-auto rounded-lg border border-stroke dark:border-dark-3">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-stroke bg-gray-2/60 dark:border-dark-3 dark:bg-dark-2">
+              <tr>
+                <th className="px-3 py-2 font-medium text-dark dark:text-white">Label line</th>
+                <th className="px-3 py-2 font-medium text-dark dark:text-white">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {labels.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={2}
+                    className="px-3 py-4 text-dark-5 dark:text-dark-6"
+                  >
+                    No label lines yet. Add the first name below.
+                  </td>
+                </tr>
+              ) : filteredLabelLines.length === 0 ? (
+                <tr>
+                  <td colSpan={2} className="px-3 py-4 text-dark-5 dark:text-dark-6">
+                    No label lines match your search.
+                  </td>
+                </tr>
+              ) : (
+                filteredLabelLines.map((l) => (
+                  <tr
+                    key={l.id}
+                    className="border-b border-stroke last:border-0 dark:border-dark-3"
+                  >
+                    <td className="px-3 py-2 align-middle text-dark dark:text-white">
+                      {editingLabelId === l.id ? (
+                        <input
+                          className="h-9 w-full max-w-xs rounded-lg border border-stroke bg-transparent px-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+                          value={editLabelDraft}
+                          onChange={(e) => setEditLabelDraft(e.target.value)}
+                          autoFocus
+                        />
+                      ) : (
+                        l.labelName
+                      )}
+                    </td>
+                    <td className="px-3 py-2 align-middle">
+                      <div className="flex flex-wrap gap-2">
+                        {editingLabelId === l.id ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={savingLabelId === l.id}
+                              onClick={() => void saveLabelRename(l.id)}
+                              className="h-8 rounded-lg bg-primary px-3 text-xs font-medium text-white hover:bg-opacity-90 disabled:opacity-60"
+                            >
+                              {savingLabelId === l.id ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={savingLabelId === l.id}
+                              onClick={() => {
+                                setEditingLabelId(null);
+                                setLabelsError("");
+                              }}
+                              className="h-8 rounded-lg border border-stroke px-3 text-xs font-medium hover:bg-gray-2 dark:border-dark-3 dark:hover:bg-dark-2"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingLabelId(l.id);
+                                setEditLabelDraft(l.labelName);
+                                setLabelsError("");
+                              }}
+                              className="h-8 rounded-lg border border-stroke px-3 text-xs font-medium hover:bg-gray-2 dark:border-dark-3 dark:hover:bg-dark-2"
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deletingLabelId === l.id}
+                              onClick={() => void deleteLabelLine(l.id)}
+                              className="h-8 rounded-lg border border-stroke px-3 text-xs font-medium text-red hover:bg-red/5 dark:border-dark-3 disabled:opacity-60"
+                            >
+                              {deletingLabelId === l.id ? "Removing…" : "Remove"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <form onSubmit={addLabelLine} className="mt-4 flex flex-wrap items-end gap-2">
+          <div className="min-w-[200px] flex-1">
+            <label htmlFor="new-label-line" className="sr-only">
+              line name
+            </label>
+            <input
+              id="new-label-line"
+              className="h-10 w-full rounded-lg border border-stroke bg-transparent px-3.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+              placeholder="Aquafina.."
+              value={newLabelName}
+              onChange={(e) => setNewLabelName(e.target.value)}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={addingLabel}
+            className="h-10 shrink-0 rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-opacity-90 disabled:opacity-60"
+          >
+            {addingLabel ? "Adding…" : "Add label line"}
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded-xl border border-stroke/80 bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark">
+        <h2 className="text-lg font-semibold text-dark dark:text-white">
           Client membership QR
         </h2>
         <p className="mt-1 text-sm text-dark-5 dark:text-dark-6">
-          Scan this QR code to open this client's full card with debit, credit,
-          orders and payment details.
+          Scan this QR code to open this client&apos;s full card with debit, credit,
+          orders and payment details. Label line names are listed above; label stock is
+          adjusted under{" "}
+          <Link href="/dashboard/inventory" className="font-medium text-primary hover:underline">
+            Inventory
+          </Link>
+          .
         </p>
 
         <div className="mt-3 flex flex-wrap items-start gap-4">
@@ -426,115 +617,6 @@ export function ClientDetailClient({ clientId }: { clientId: string }) {
               Download membership card PDF
             </button>
           </div>
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-stroke/80 bg-white p-4 shadow-sm dark:border-dark-3 dark:bg-gray-dark">
-        <h2 className="text-lg font-semibold text-dark dark:text-white">
-          Label inventory (this client)
-        </h2>
-        <p className="mt-1 text-sm text-dark-5 dark:text-dark-6">
-          Track printed / branded labels per client. Quantities can be adjusted when
-          you receive stock or after production (production module later).
-        </p>
-
-        <form
-          onSubmit={addLabel}
-          className="mt-3 flex flex-wrap items-end gap-3"
-        >
-          <input
-            className="h-10 min-w-[180px] rounded-lg border border-stroke bg-transparent px-3.5 text-sm dark:border-dark-3 dark:bg-dark-2"
-            placeholder="Label name (e.g. Brand A 500ml)"
-            value={newLabel.labelName}
-            onChange={(e) =>
-              setNewLabel((s) => ({ ...s, labelName: e.target.value }))
-            }
-            required
-          />
-          <input
-            type="number"
-            min={0}
-            step="any"
-            className="h-10 w-28 rounded-lg border border-stroke bg-transparent px-3.5 text-sm dark:border-dark-3 dark:bg-dark-2"
-            placeholder="Qty"
-            value={newLabel.quantityAvailable}
-            onChange={(e) =>
-              setNewLabel((s) => ({ ...s, quantityAvailable: e.target.value }))
-            }
-          />
-          <button
-            type="submit"
-            disabled={saving}
-            className="h-10 rounded-lg border border-stroke px-4 text-sm font-medium hover:bg-gray-2 dark:border-dark-3 dark:hover:bg-dark-2"
-          >
-            Add label line
-          </button>
-        </form>
-
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[560px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-stroke text-left dark:border-dark-3">
-                <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-dark-5 dark:text-dark-6">Label name</th>
-                <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-dark-5 dark:text-dark-6">Quantity</th>
-                <th className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-dark-5 dark:text-dark-6"> </th>
-              </tr>
-            </thead>
-            <tbody>
-              {labels.map((row) => (
-                <tr
-                  key={`${row.id}-${row.updatedAt}`}
-                  className="border-b border-stroke dark:border-dark-3"
-                >
-                  <td className="px-3 py-3">
-                    <input
-                      className="h-8 w-full max-w-xs rounded border border-stroke bg-transparent px-2.5 text-sm dark:border-dark-3"
-                      defaultValue={row.labelName}
-                      onBlur={(e) => {
-                        const v = e.target.value.trim();
-                        if (v && v !== row.labelName) {
-                          void patchLabel(row.id, { labelName: v });
-                        }
-                      }}
-                    />
-                  </td>
-                  <td className="px-3 py-3">
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      className="h-8 w-24 rounded border border-stroke bg-transparent px-2.5 text-sm dark:border-dark-3"
-                      defaultValue={row.quantityAvailable}
-                      onBlur={(e) => {
-                        const v = Number(e.target.value);
-                        if (
-                          Number.isFinite(v) &&
-                          v >= 0 &&
-                          v !== row.quantityAvailable
-                        ) {
-                          void patchLabel(row.id, { quantityAvailable: v });
-                        }
-                      }}
-                    />
-                  </td>
-                  <td className="px-3 py-3">
-                    <button
-                      type="button"
-                      className="text-sm text-red hover:underline"
-                      onClick={() => void deleteLabel(row.id, row.labelName)}
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {labels.length === 0 ? (
-            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">
-              No label lines yet. Add one above.
-            </p>
-          ) : null}
         </div>
       </section>
     </div>

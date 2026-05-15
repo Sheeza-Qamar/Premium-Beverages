@@ -1,5 +1,9 @@
 import { requireAuth } from "@/lib/auth";
 import { dbQuery, type DbRow, withTransaction } from "@/lib/db";
+import { ensureRawMaterialsClientLabelColumns } from "@/lib/inventory-client-label-schema";
+import { ensureCapRetiredFromRawMaterials } from "@/lib/inventory-retire-cap";
+import { ensurePlasticRetiredFromRawMaterials } from "@/lib/inventory-retire-plastic";
+import { ensureProductionSchema } from "@/lib/production-schema";
 import { parseNonNegativeNumber, toOptionalTrimmedString } from "@/lib/validation";
 import type { PoolConnection, ResultSetHeader } from "mysql2/promise";
 import { NextResponse } from "next/server";
@@ -7,6 +11,8 @@ import { NextResponse } from "next/server";
 type ProductionRow = DbRow & {
   id: number;
   client_id: number;
+  order_id: number | null;
+  order_invoice_number: string | null;
   client_name: string;
   bottle_type: "mix" | "pure";
   quantity_produced: string;
@@ -26,7 +32,7 @@ type MaterialUsageRow = DbRow & {
   production_id: number;
   material_id: number;
   material_name: string;
-  material_type: "bottle" | "cap" | "label" | "plastic" | "other";
+  material_type: "bottle" | "label" | "other";
   quantity_used: string;
 };
 
@@ -41,7 +47,7 @@ type ClientLabelRow = DbRow & {
 type MaterialInventoryRow = DbRow & {
   id: number;
   name: string;
-  material_type: "bottle" | "cap" | "label" | "plastic" | "other";
+  material_type: "bottle" | "label" | "other";
   bottle_type: "mix" | "pure" | null;
   quantity_available: string;
 };
@@ -65,10 +71,16 @@ export async function GET() {
   if (!auth.ok) {
     return auth.response;
   }
+  await ensureProductionSchema();
+  await ensurePlasticRetiredFromRawMaterials();
+  await ensureCapRetiredFromRawMaterials();
+  await ensureRawMaterialsClientLabelColumns();
   const [productions] = await dbQuery<ProductionRow[]>(
     `SELECT
        p.id,
        p.client_id,
+       p.order_id,
+       o.invoice_number AS order_invoice_number,
        c.name AS client_name,
        p.bottle_type,
        p.quantity_produced,
@@ -77,6 +89,7 @@ export async function GET() {
        p.created_at
      FROM production p
      INNER JOIN clients c ON c.id = p.client_id
+     LEFT JOIN orders o ON o.id = p.order_id
      ORDER BY p.production_date DESC, p.id DESC
      LIMIT 100`,
   );
@@ -88,7 +101,7 @@ export async function GET() {
     Array<{
       materialId: number;
       materialName: string;
-      materialType: "bottle" | "cap" | "label" | "plastic" | "other";
+      materialType: "bottle" | "label" | "other";
       quantityUsed: number;
     }>
   >();
@@ -147,7 +160,7 @@ export async function GET() {
       Array<{
         materialId: number;
         materialName: string;
-        materialType: "bottle" | "cap" | "label" | "plastic" | "other";
+        materialType: "bottle" | "label" | "other";
         quantityUsed: number;
       }>
     >());
@@ -157,6 +170,8 @@ export async function GET() {
     productions: productions.map((p) => ({
       id: p.id,
       clientId: p.client_id,
+      orderId: p.order_id,
+      orderInvoiceNumber: p.order_invoice_number,
       clientName: p.client_name,
       bottleType: p.bottle_type,
       quantityProduced: Number(p.quantity_produced),
@@ -174,8 +189,13 @@ export async function POST(request: Request) {
   if (!auth.ok) {
     return auth.response;
   }
+  await ensureProductionSchema();
+  await ensurePlasticRetiredFromRawMaterials();
+  await ensureCapRetiredFromRawMaterials();
+  await ensureRawMaterialsClientLabelColumns();
   const body = await request.json().catch(() => null);
   const clientId = Number(body?.clientId);
+  const orderId = Number(body?.orderId);
   const bottleType = String(body?.bottleType ?? "").toLowerCase();
   const productionDate = String(body?.productionDate ?? "").trim();
   const notes =
@@ -186,6 +206,12 @@ export async function POST(request: Request) {
 
   if (!Number.isInteger(clientId) || clientId < 1) {
     return NextResponse.json({ message: "Valid client is required." }, { status: 400 });
+  }
+  if (!Number.isInteger(orderId) || orderId < 1) {
+    return NextResponse.json(
+      { message: "Select the order this production run fulfills." },
+      { status: 400 },
+    );
   }
   if (bottleType !== "mix" && bottleType !== "pure") {
     return NextResponse.json(
@@ -258,12 +284,6 @@ export async function POST(request: Request) {
     }
     materialUsages.push({ materialId, quantityUsed });
   }
-  if (materialUsages.length === 0) {
-    return NextResponse.json(
-      { message: "Bottle and cap usage are required." },
-      { status: 400 },
-    );
-  }
 
   const duplicateMaterialCheck = new Set<number>();
   for (const u of materialUsages) {
@@ -297,16 +317,69 @@ export async function POST(request: Request) {
         throw new Error("Client not found.");
       }
 
+      const [orderRows] = await conn.query<
+        (DbRow & { id: number; client_id: number; status: string })[]
+      >("SELECT id, client_id, status FROM orders WHERE id = ? LIMIT 1", [orderId]);
+      if (orderRows.length === 0) {
+        throw new Error("Order not found.");
+      }
+      const ord = orderRows[0];
+      if (ord.client_id !== clientId) {
+        throw new Error("Selected order does not belong to this client.");
+      }
+      if (ord.status === "cancelled") {
+        throw new Error("Cannot record production for a cancelled order.");
+      }
+
+      const [typeRows] = await conn.query<(DbRow & { bottle_type: "mix" | "pure" })[]>(
+        `SELECT DISTINCT bottle_type
+         FROM order_items
+         WHERE order_id = ? AND bottle_type IN ('mix','pure')`,
+        [orderId],
+      );
+      if (typeRows.length === 0) {
+        throw new Error(
+          "This order has no bottle type on its line items. Update the order before recording production.",
+        );
+      }
+      if (typeRows.length > 1) {
+        throw new Error(
+          "This order has multiple bottle types on different lines. Split the order before recording production.",
+        );
+      }
+      const orderBottleType = typeRows[0].bottle_type;
+      if (orderBottleType !== bottleType) {
+        throw new Error(`Bottle type must match the order (${orderBottleType}).`);
+      }
+
+      const [orderedSumRows] = await conn.query<(DbRow & { q: string })[]>(
+        "SELECT COALESCE(SUM(quantity), 0) AS q FROM order_items WHERE order_id = ?",
+        [orderId],
+      );
+      const [producedSumRows] = await conn.query<(DbRow & { q: string })[]>(
+        "SELECT COALESCE(SUM(quantity_produced), 0) AS q FROM production WHERE order_id = ?",
+        [orderId],
+      );
+      const orderedTotal = Number(orderedSumRows[0]?.q ?? 0);
+      const producedSoFar = Number(producedSumRows[0]?.q ?? 0);
+      const remaining = orderedTotal - producedSoFar;
+      if (orderedTotal <= 0) {
+        throw new Error("This order has no ordered quantity to produce against.");
+      }
+      if (quantityProduced > remaining) {
+        throw new Error(
+          `Quantity produced (${quantityProduced}) exceeds what is left on this order (${remaining}; ordered ${orderedTotal}, already produced ${producedSoFar}).`,
+        );
+      }
+
       const [result] = await conn.execute<ResultSetHeader>(
         `INSERT INTO production
-         (client_id, bottle_type, quantity_produced, production_date, notes, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-        [clientId, bottleType, quantityProduced, productionDate, notes, auth.user.id],
+         (client_id, order_id, bottle_type, quantity_produced, production_date, notes, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [clientId, orderId, bottleType, quantityProduced, productionDate, notes, auth.user.id],
       );
       const newProductionId = result.insertId;
 
-      let hasBottleUsage = false;
-      let hasCapUsage = false;
       for (const usage of materialUsages) {
         const [materialRows] = await conn.query<MaterialInventoryRow[]>(
           `SELECT
@@ -327,21 +400,13 @@ export async function POST(request: Request) {
         }
 
         const material = materialRows[0];
-        if (material.material_type !== "bottle" && material.material_type !== "cap") {
+        if (material.material_type !== "bottle") {
+          throw new Error(`Material "${material.name}" is not a bottle stock row.`);
+        }
+        if (material.bottle_type !== bottleType) {
           throw new Error(
-            `Material "${material.name}" is not a bottle/cap material.`,
+            `Bottle stock "${material.name}" does not match production bottle type "${bottleType}".`,
           );
-        }
-        if (material.material_type === "bottle") {
-          hasBottleUsage = true;
-          if (material.bottle_type !== bottleType) {
-            throw new Error(
-              `Bottle material "${material.name}" does not match production bottle type "${bottleType}".`,
-            );
-          }
-        }
-        if (material.material_type === "cap") {
-          hasCapUsage = true;
         }
 
         const available = Number(material.quantity_available);
@@ -364,10 +429,6 @@ export async function POST(request: Request) {
            VALUES (?, ?, ?)`,
           [newProductionId, usage.materialId, usage.quantityUsed],
         );
-      }
-
-      if (!hasBottleUsage || !hasCapUsage) {
-        throw new Error("Production must include both bottle and cap usage.");
       }
 
       for (const usage of usages) {
@@ -397,12 +458,41 @@ export async function POST(request: Request) {
           );
         }
 
+        const [linkedInv] = await conn.query<
+          (DbRow & { material_id: number; qty: string })[]
+        >(
+          `SELECT rm.id AS material_id, i.quantity_available AS qty
+           FROM raw_materials rm
+           INNER JOIN inventory i ON i.material_id = rm.id
+           WHERE rm.client_label_id = ? AND rm.material_type = 'label'
+           LIMIT 1
+           FOR UPDATE`,
+          [usage.clientLabelId],
+        );
+        if (linkedInv.length > 0) {
+          const warehouseQty = Number(linkedInv[0].qty);
+          if (warehouseQty < usage.quantityUsed) {
+            throw new Error(
+              `Insufficient warehouse label stock for "${label.label_name}". Available: ${warehouseQty}.`,
+            );
+          }
+        }
+
         await conn.execute<ResultSetHeader>(
           `UPDATE client_labels
            SET quantity_available = quantity_available - ?, updated_at = NOW()
            WHERE id = ?`,
           [usage.quantityUsed, usage.clientLabelId],
         );
+
+        if (linkedInv.length > 0) {
+          await conn.execute<ResultSetHeader>(
+            `UPDATE inventory
+             SET quantity_available = quantity_available - ?, last_updated = NOW()
+             WHERE material_id = ?`,
+            [usage.quantityUsed, linkedInv[0].material_id],
+          );
+        }
 
         await conn.execute<ResultSetHeader>(
           `INSERT INTO production_label_usage
@@ -416,7 +506,7 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(
-      { message: "Production recorded. Bottles, caps, and labels deducted.", id: productionId },
+      { message: "Production recorded. Labels deducted.", id: productionId },
       { status: 201 },
     );
   } catch (error) {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type ClientRow = {
   id: number;
@@ -25,6 +25,24 @@ export function ClientsClient() {
     contactNumber: "",
     address: "",
   });
+  const [listSearch, setListSearch] = useState("");
+
+  const filteredClients = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) return clients;
+    return clients.filter((c) => {
+      const blob = [
+        c.name,
+        c.email ?? "",
+        c.contactNumber ?? "",
+        c.address ?? "",
+        String(c.id),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+  }, [clients, listSearch]);
 
   const load = async () => {
     setLoading(true);
@@ -109,8 +127,12 @@ export function ClientsClient() {
           Add client
         </h2>
         <p className="mt-1 text-sm text-dark-5 dark:text-dark-6">
-          Store client name, email, phone, and address. Manage per-client label
-          stock from the client detail page.
+          Store client name, email, phone, and address. Branded label line names are added on each
+          client&apos;s edit page; label stock quantities are adjusted under{" "}
+          <Link href="/dashboard/inventory" className="font-medium text-primary hover:underline">
+            Inventory
+          </Link>
+          .
         </p>
         <form
           onSubmit={createClient}
@@ -160,6 +182,17 @@ export function ClientsClient() {
           All clients
         </h2>
         {error ? <p className="mt-3 text-sm text-red">{error}</p> : null}
+        <label htmlFor="clients-list-search" className="sr-only">
+          Search clients
+        </label>
+        <input
+          id="clients-list-search"
+          type="search"
+          value={listSearch}
+          onChange={(e) => setListSearch(e.target.value)}
+          placeholder="Search name, email, phone, address…"
+          className="mt-3 w-full max-w-md rounded-lg border border-stroke bg-transparent px-4 py-2.5 text-sm dark:border-dark-3 dark:bg-dark-2"
+        />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[700px] border-collapse text-sm">
             <thead>
@@ -172,7 +205,7 @@ export function ClientsClient() {
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => (
+              {filteredClients.map((c) => (
                 <tr
                   key={c.id}
                   className="border-b border-stroke dark:border-dark-3"
@@ -192,7 +225,7 @@ export function ClientsClient() {
                       href={`/dashboard/clients/${c.id}`}
                       className="text-primary hover:underline"
                     >
-                      Edit & labels
+                      Edit
                     </Link>
                     <button
                       type="button"
@@ -209,6 +242,10 @@ export function ClientsClient() {
           {clients.length === 0 ? (
             <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">
               No clients yet.
+            </p>
+          ) : filteredClients.length === 0 ? (
+            <p className="mt-4 text-sm text-dark-5 dark:text-dark-6">
+              No clients match your search.
             </p>
           ) : null}
         </div>

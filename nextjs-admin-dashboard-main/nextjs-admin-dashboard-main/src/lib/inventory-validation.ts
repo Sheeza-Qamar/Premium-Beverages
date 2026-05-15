@@ -1,13 +1,7 @@
 import { parseNonNegativeNumber, toOptionalTrimmedString } from "@/lib/validation";
 
 export const UNITS = new Set(["pcs", "kg"]);
-export const MATERIAL_TYPES = new Set([
-  "bottle",
-  "cap",
-  "label",
-  "plastic",
-  "other",
-]);
+export const MATERIAL_TYPES = new Set(["bottle", "label", "other"]);
 export const BOTTLE_TYPES = new Set(["mix", "pure"]);
 
 export function normalizeBottleType(value: unknown): "mix" | "pure" | null {
